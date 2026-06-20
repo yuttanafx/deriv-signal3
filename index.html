@@ -1406,7 +1406,38 @@ function freshState() {
     };
 
 }
+/*****************************************************************
+ * TVE AI V3 - GLOBAL MARTINGALE
+ *****************************************************************/
 
+function getCurrentStake() {
+
+    return settings.baseStake *
+        Math.pow(
+            settings.martingaleMultiplier,
+            GLOBAL.step
+        );
+
+}
+
+function globalWin() {
+
+    GLOBAL.step = 0;
+    GLOBAL.totalWin++;
+
+}
+
+function globalLose() {
+
+    GLOBAL.step++;
+
+    if (GLOBAL.step > settings.maxMartingaleSteps) {
+        GLOBAL.step = settings.maxMartingaleSteps;
+    }
+
+    GLOBAL.totalLose++;
+
+}
   
 
   function ensureState(sym) {
