@@ -1348,45 +1348,66 @@
 
   let state = {};
 
+/*****************************************************************
+ * TVE AI V3 GLOBAL ENGINE
+ *****************************************************************/
 
+const GLOBAL = {
 
-  function freshState() {
+    step: 0,
+
+    activeSymbol: null,
+
+    activeDirection: null,
+
+    pending: false,
+
+    orderRunning: false,
+
+    ranking: [],
+
+    bestSignal: null,
+
+    confidence: 0,
+
+    totalWin: 0,
+
+    totalLose: 0,
+
+    history: {},
+
+    queue: []
+
+};
+
+function freshState() {
 
     return {
 
-      ticks: [],
+        ticks: [],
+        tickCounter: 0,
+        lastPrice: null,
+        prevPrice: null,
+        resistance: null,
+        support: null,
 
-      tickCounter: 0,
+        sigType: 'NEUTRAL',
+        sigText: 'กำลังวิเคราะห์โครงสร้างราคา…',
+        sigSub: 'รอข้อมูล tick เพื่อคำนวณกรอบราคา',
 
-      lastPrice: null,
+        pendingContracts: [],
+        resolvedContracts: [],
 
-      prevPrice: null,
+        statWins: 0,
+        statLosses: 0,
 
-      resistance: null,
-
-      support: null,
-
-      sigType: 'NEUTRAL',
-
-      sigText: 'กำลังวิเคราะห์โครงสร้างราคา…',
-
-      sigSub: 'รอข้อมูล tick เพื่อคำนวณกรอบราคา',
-
-      pendingContracts: [], 
-
-      resolvedContracts: [],
-
-      statWins: 0,
-
-      statLosses: 0,
-
-      currentStepCount: 0 
+        currentStepCount: 0
 
     };
 
-  }
+}
 
-
+  
 
   function ensureState(sym) {
 
