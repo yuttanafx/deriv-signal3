@@ -1724,7 +1724,7 @@ function globalLose() {
 
 
 
-    const currentStake = parseFloat((baseStake * Math.pow(martingaleMultiplier, s.currentStepCount)).toFixed(2));
+    const currentStake = parseFloat(getCurrentStake().toFixed(2));
 
     const contractType = direction === 'HIGHER' ? 'CALL' : 'PUT';
 
@@ -2480,7 +2480,7 @@ function globalLose() {
 
         s.statLosses++;
 
-        s.currentStepCount++; 
+        globalLose(); 
 
         
 
@@ -2488,7 +2488,7 @@ function globalLose() {
 
           addLog(`🛑 [STOP LOSS] พอร์ต [${sym}] ผิดทางถึงลิมิตสูงสุดที่ล็อกไว้ (${allowedMaxSteps} ไม้) บ็อตตัดขาดทุนรอบนี้ทิ้ง (Cut Loss) และบังคับรีเซ็ตกลับไม้ 1 ทันที!`);
 
-          s.currentStepCount = 0;
+          globalWin();
 
         } else {
 
