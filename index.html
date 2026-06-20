@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="th">
-<head>  
+<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Terravolteco — Market Structure Terminal (Logout/Disconnect Fix)</title>
@@ -494,10 +494,6 @@
       <span class="cb-label">สถานะออเดอร์</span>
       <span class="cb-val" id="cb-lock-status">ว่าง</span>
     </div>
-    <div class="cb-group" style="display:flex; align-items:center; gap:6px;">
-      <span class="cb-label">สัญลักษณ์ Win Rate สูงสุด</span>
-      <span class="cb-val" id="cb-best-symbol">—</span>
-    </div>
   </div>
 
   <p class="section-label">รายการติดตาม (กดการ์ดเพื่อดูรายละเอียด)</p>
@@ -541,6 +537,23 @@
             <option value="10">สูงสุด 10 ไม้ (เต็มระบบ)</option>
           </select>
         </div>
+      </div>
+    </div>
+
+    <!-- 🆕 INDICATOR FILTER PANEL: ตัวกรองเสริมแบบเปิด/ปิดได้ทีละตัว
+         ไม่กระทบโลจิกสัญญาณเดิม (S/R breakout + MTF bias) ที่ยังทำงานเหมือนเดิมทุกอย่าง
+         ตัวกรองเหล่านี้เป็น "เกตเพิ่ม" ก่อนจะอนุญาตให้ยิงออเดอร์จริง (executeRealContract)
+         ถ้าปิดทุกตัว ระบบจะทำงานเหมือนเดิม 100% -->
+    <div class="track-panel" id="indicator-filter-panel">
+      <div class="track-head">
+        <span>ตัวกรองอินดิเคเตอร์เสริม (เปิด/ปิดได้ทีละตัว)</span>
+        <span id="ind-filter-summary">0/4 เปิดใช้</span>
+      </div>
+      <div class="watchlist-picker" style="margin-bottom:0;">
+        <div class="chip ind-toggle-chip" data-ind="rsi" id="chip-ind-rsi">RSI/Stoch กรอง Overbought-Oversold</div>
+        <div class="chip ind-toggle-chip" data-ind="atr" id="chip-ind-atr">ATR ปรับ Lookback/Threshold ตาม Volatility</div>
+        <div class="chip ind-toggle-chip" data-ind="velocity" id="chip-ind-velocity">Tick Velocity (ความเร็วราคา)</div>
+        <div class="chip ind-toggle-chip" data-ind="deepmtf" id="chip-ind-deepmtf">Deep MTF Confirmation (3-4 ช่วงเวลา)</div>
       </div>
     </div>
 
@@ -674,10 +687,11 @@
   // 🆕 GLOBAL CROSS-SYMBOL MARTINGALE LOCK
   // เดิมมาติงเกลผูกกับ s.currentStepCount ของแต่ละสัญลักษณ์แยกกัน
   // ตอนนี้เพิ่ม "ระบบกลาง" คลุมทุกสัญลักษณ์ที่ติดตามอยู่:
-  //   - มีดีลค้างได้แค่ 1 ดีลทั้งระบบ (globalLockedSymbol)
-  //   - เมื่อจะยิงออเดอร์ใหม่ ระบบจะดูว่าสัญลักษณ์ไหนใน watchedSymbols
-  //     มี Win Rate สูงสุด ณ ขณะนั้น แล้วเลือกยิงออเดอร์จากสัญลักษณ์นั้น
-  //     (ไม่จำเป็นต้องเป็นสัญลักษณ์เดิมที่เพิ่งแพ้มา)
+  //   - มีดีลค้างได้แค่ 1 ดีลทั้งระบบ (globalLockedSymbol) — ต้องรอให้ดีลก่อนหน้าหมดอายุ/ปิดก่อน
+  //     จึงจะยิงไม้ใหม่ได้ ไม่ว่าไม้ใหม่นั้นจะเป็นสัญลักษณ์เดิมหรือสัญลักษณ์อื่นก็ตาม
+  //   ✏️ (แก้ไขล่าสุด) ไม่ใช้ Win Rate เลือกสัญลักษณ์ที่จะยิงอีกต่อไป — สัญลักษณ์ไหนก็ได้ที่
+  //     สัญญาณผ่านตัวกรองเดิม (S/R breakout + MTF bias) และผ่านตัวกรองอินดิเคเตอร์เสริม
+  //     (ถ้าเปิดใช้) ก่อนใคร จะได้ยิงไม้นั้นไปก่อน
   //   - ขนาดทุนไม้ถัดไปคำนวณจาก globalStepCount (สเตปกลาง ไม่ใช่ของสัญลักษณ์เดิม)
   //   - ชนะเมื่อไหร่ -> รีเซ็ต globalStepCount กลับ 0 ทันที (กลับจุดเริ่มต้น)
   // โลจิกเดิมต่อสัญลักษณ์ (s.currentStepCount, s.statWins, s.statLosses ฯลฯ)
@@ -685,6 +699,15 @@
   // ──────────────────────────────────────────────────────────────────
   let globalStepCount = 0;
   let globalLockedSymbol = null; // สัญลักษณ์ที่กำลังมีดีลค้างอยู่ (ล็อกทั้งระบบ)
+
+  // ──────────────────────────────────────────────────────────────────
+  // 🆕 INDICATOR FILTER TOGGLES — เปิด/ปิดได้ทีละตัว ไม่กระทบสัญญาณเดิม
+  // ถ้าตัวไหนปิดอยู่ (false) เงื่อนไขของตัวนั้นจะถือว่า "ผ่านเสมอ" (ไม่กรอง)
+  // โลจิกสัญญาณเดิม (S/R breakout + MTF bias 2 ช่วงเวลา) ยังทำงานเหมือนเดิม
+  // ตัวกรองพวกนี้เป็นแค่เกตเสริมก่อนจะอนุญาตให้ยิงออเดอร์จริงเท่านั้น
+  // ──────────────────────────────────────────────────────────────────
+  let indicatorToggles = { rsi: false, atr: false, velocity: false, deepmtf: false };
+
 
   function getSymbolWinRate(sym) {
     const s = state[sym];
@@ -713,12 +736,10 @@
     const stepEl = document.getElementById('cb-step');
     const stakeEl = document.getElementById('cb-next-stake');
     const lockEl = document.getElementById('cb-lock-status');
-    const bestEl = document.getElementById('cb-best-symbol');
     if (!stepEl) return;
     stepEl.textContent = `M-${globalStepCount + 1}`;
     stakeEl.textContent = `$${(baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(2)}`;
     lockEl.textContent = isGlobalOrderLocked() ? `กำลังถือดีล (${globalLockedSymbol})` : 'ว่าง';
-    bestEl.textContent = getBestWinRateSymbol() || '—';
   }
 
   function durationToWaitTicks(v) {
@@ -746,7 +767,15 @@
       resolvedContracts: [],
       statWins: 0,
       statLosses: 0,
-      currentStepCount: 0 
+      currentStepCount: 0,
+      // 🆕 ฟิลด์เสริมสำหรับตัวกรองอินดิเคเตอร์ (ไม่กระทบฟิลด์เดิมด้านบน)
+      gains: [],       // สำหรับคำนวณ RSI
+      losses: [],      // สำหรับคำนวณ RSI
+      rsiValue: null,
+      stochValue: null,
+      trueRanges: [],  // สำหรับคำนวณ ATR
+      atrValue: null,
+      lastFilterNote: '' // เก็บเหตุผลล่าสุดที่ถูกกรอง (ใช้โชว์ใน log)
     };
   }
 
@@ -777,6 +806,29 @@
   const accBalance = document.getElementById('acc-balance');
   const apiDisconnectBtn = document.getElementById('api-disconnect-btn');
   const clearApiBtn = document.getElementById('clear-api-btn');
+
+  // 🆕 ผูกปุ่มเปิด/ปิดตัวกรองอินดิเคเตอร์เสริมแต่ละตัว
+  document.querySelectorAll('.ind-toggle-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const key = chip.getAttribute('data-ind');
+      indicatorToggles[key] = !indicatorToggles[key];
+      chip.classList.toggle('active', indicatorToggles[key]);
+      renderIndicatorFilterSummary();
+      const labelMap = {
+        rsi: 'RSI/Stochastic กรอง Overbought-Oversold',
+        atr: 'ATR ปรับ Lookback/Threshold ตาม Volatility',
+        velocity: 'Tick Velocity (ความเร็วราคา)',
+        deepmtf: 'Deep MTF Confirmation (3-4 ช่วงเวลา)'
+      };
+      addLog(`${indicatorToggles[key] ? '✅ เปิดใช้' : '⛔ ปิดใช้'}ตัวกรอง: ${labelMap[key]}`);
+    });
+  });
+
+  function renderIndicatorFilterSummary() {
+    const count = Object.values(indicatorToggles).filter(Boolean).length;
+    const el = document.getElementById('ind-filter-summary');
+    if (el) el.textContent = `${count}/4 เปิดใช้`;
+  }
 
   themeToggleBtn.addEventListener('click', () => {
     if (document.documentElement.getAttribute('data-theme') === 'light') {
@@ -894,14 +946,13 @@
     ensureState(symbol);
     const s = state[symbol];
 
-    // 🆕 เงื่อนไขใหม่ 1: ดีลค้างได้แค่ 1 ดีลทั้งระบบ (ครอบทุกสัญลักษณ์ ไม่ใช่แค่ตัวนี้)
-    if (isGlobalOrderLocked()) return;
-
-    // 🆕 เงื่อนไขใหม่ 2: ยิงออเดอร์ได้เฉพาะสัญลักษณ์ที่มี Win Rate สูงสุด ณ ขณะนี้เท่านั้น
-    // (รวมวิเคราะห์ทุกสัญลักษณ์ที่ติดตามอยู่ ไม่จำกัดว่าต้องเป็นสัญลักษณ์เดิมที่ส่งสัญญาณแพ้/ชนะมา)
-    const bestSym = getBestWinRateSymbol();
-    if (symbol !== bestSym) {
-      addLog(`⏭️ [${symbol}] มีสัญญาณเบรคเอาท์ แต่ Win Rate ไม่สูงสุดในกลุ่ม (สูงสุดคือ ${bestSym}) — ข้ามไม้นี้ไปก่อน`);
+    // ✏️ เงื่อนไขใหม่ (แก้ไขตามที่สั่ง): ไม่ใช้ Win Rate เลือกสัญลักษณ์อีกต่อไป
+    // เปลี่ยนเป็น "สัญลักษณ์ใดก็ได้" ที่สัญญาณผ่านตัวกรอง (logic เดิม + indicator filter) ก่อน จะได้ยิงก่อน
+    // เงื่อนไขเดียวที่ยังคุมอยู่คือ: ต้องรอออเดอร์ก่อนหน้า (ไม่ว่าจะเป็นสัญลักษณ์ไหน) หมดอายุ/ปิดดีลก่อน
+    // ถึงจะยิงไม้ใหม่ได้ — เพื่อให้สเตปมาติงเกลกลาง (globalStepCount) ยังนับต่อเนื่องถูกต้อง
+    // ดีลค้างได้แค่ 1 ดีลทั้งระบบ (ครอบทุกสัญลักษณ์ ไม่ใช่แค่ตัวนี้)
+    if (isGlobalOrderLocked()) {
+      addLog(`⏭️ [${symbol}] มีสัญญาณเบรคเอาท์ แต่มีออเดอร์ค้างอยู่ที่ ${globalLockedSymbol} — รอให้หมดอายุก่อนจึงยิงไม้ใหม่ได้`);
       return;
     }
 
@@ -967,7 +1018,7 @@
       apiTracked: false
     };
     s.pendingContracts.push(apiContract);
-    addLog(`🎯 [${symbol}] (Win Rate สูงสุดในกลุ่ม) ตรวจพบเบรคเอาท์! ส่งคำสั่งยิงออเดอร์ ไม้กลาง M-${apiContract.step} (ขนาดทุน: $${currentStake})`);
+    addLog(`🎯 [${symbol}] สัญญาณผ่านตัวกรองและไม่มีออเดอร์ค้าง! ส่งคำสั่งยิงออเดอร์ ไม้กลาง M-${apiContract.step} (ขนาดทุน: $${currentStake})`);
     renderGlobalBanner();
   }
 
@@ -1004,8 +1055,6 @@
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';
     const strokeColor = isLight ? '#4b5563' : '#c8cfdc';
 
-    const bestSym = getBestWinRateSymbol();
-
     watchGrid.innerHTML = watchedSymbols.map(sym => {
       const s = state[sym]; const meta = ALL_SYMBOLS.find(i => i.sym === sym); if (!s) return '';
       const priceStr = s.lastPrice ? s.lastPrice.toFixed(meta.dec) : '—.——';
@@ -1019,8 +1068,6 @@
       const wrStr = total > 0 ? ((s.statWins / total) * 100).toFixed(0) + '%' : '—';
       const wrCls = total > 0 ? ( (s.statWins/total) >= 0.5 ? 'good' : 'bad' ) : '';
       const focusedCls = focusedSymbol === sym ? 'focused' : '';
-      const bestCls = sym === bestSym ? 'bestcard' : '';
-      const bestTag = sym === bestSym ? `<span class="wc-best-tag">BEST WR</span>` : '';
 
       let polylineHtml = '';
       if (s.ticks.length >= 2) {
@@ -1036,8 +1083,8 @@
       // 🆕 ขนาดทุนไม้ถัดไปที่แสดงต่อการ์ด อ้างอิงจาก "สเตปกลาง" (ใช้ร่วมกันทุกสัญลักษณ์)
       const nextStakeVal = (baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(2);
 
-      return `<div class="watch-card ${focusedCls} ${bestCls}" data-sym="${sym}">
-        <div class="wc-top"><span class="wc-name">${meta.label}${bestTag}</span><span class="wc-badge ${badgeCls}">${s.sigType}</span></div>
+      return `<div class="watch-card ${focusedCls}" data-sym="${sym}">
+        <div class="wc-top"><span class="wc-name">${meta.label}</span><span class="wc-badge ${badgeCls}">${s.sigType}</span></div>
         <div class="wc-mid"><span class="wc-price">${priceStr}</span><div class="wc-spark-wrap"><svg viewBox="0 0 120 28" preserveAspectRatio="none">${polylineHtml}</svg></div></div>
         <div class="wc-bottom">
           <div class="wc-wr">Win Rate: <span class="wc-wr-val ${wrCls}">${wrStr}</span></div>
