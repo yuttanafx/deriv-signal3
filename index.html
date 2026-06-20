@@ -1446,8 +1446,59 @@ function globalLose() {
 
   }
 
+/*****************************************************************
+ * TVE AI Scanner
+ *****************************************************************/
 
+function createSignal(symbol){
 
+    return {
+
+        symbol,
+
+        direction:null,
+
+        score:0,
+
+        confidence:0,
+
+        reason:[],
+
+        canTrade:false
+
+    };
+
+}
+
+function addScore(signal,score,reason){
+
+    signal.score+=score;
+
+    signal.reason.push(reason);
+
+}
+
+function calculateConfidence(signal){
+
+    signal.confidence=Math.min(100,signal.score);
+
+}
+function updateRanking(signal){
+
+    GLOBAL.ranking.push(signal);
+
+    GLOBAL.ranking.sort((a,b)=>b.score-a.score);
+
+    GLOBAL.bestSignal=GLOBAL.ranking[0];
+
+}
+  function resetScanner(){
+
+    GLOBAL.ranking=[];
+
+    GLOBAL.bestSignal=null;
+
+}
   const pickerContainer = document.getElementById('watchlist-picker');
 
   const watchCountEl = document.getElementById('watch-count');
