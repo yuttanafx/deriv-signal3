@@ -433,6 +433,63 @@
 </head>
 <body>
 
+<!-- 🔒 LOCK SCREEN: ต้องกรอกรหัสแอดมินก่อนเข้าใช้งานหน้านี้ — ถามรหัสทุกครั้งที่เปิด/รีโหลดหน้า (ไม่มีการจำการปลดล็อกข้ามเซสชัน)
+     ไม่ได้ไปแก้ไข/ยุ่งกับโลจิกของระบบเทอร์มินอลด้านล่างเลย เป็นแค่ฉากกั้นทับด้านบนสุด (z-index สูงสุด) -->
+<div id="lock-screen" style="
+    position:fixed; inset:0; z-index:99999;
+    display:flex; align-items:center; justify-content:center;
+    background:#05060a; padding:20px;
+  ">
+  <div style="
+      width:100%; max-width:340px;
+      background:#11141c; border:1px solid #232838; border-radius:12px;
+      padding:28px 24px; text-align:center;
+      font-family:'IBM Plex Mono', monospace;
+    ">
+    <div style="font-size:11px; letter-spacing:.18em; color:#5eead4; text-transform:uppercase; margin-bottom:6px;">Terravolteco</div>
+    <div style="font-size:16px; font-weight:600; color:#eef1f7; margin-bottom:18px; font-family:'Inter', sans-serif;">กรุณากรอกรหัสแอดมินเพื่อเข้าใช้งาน</div>
+    <input type="password" id="lock-password-input" placeholder="รหัสแอดมิน…" autocomplete="off" style="
+        width:100%; box-sizing:border-box; background:#0a0c11; border:1px solid #232838; color:#eef1f7;
+        padding:12px 14px; border-radius:8px; font-family:'IBM Plex Mono', monospace; font-size:14px;
+        outline:none; margin-bottom:12px; text-align:center;
+      ">
+    <button id="lock-submit-btn" style="
+        width:100%; background:#5eead4; color:#000; border:none; padding:12px;
+        border-radius:8px; font-weight:600; font-size:13px; cursor:pointer; font-family:'Inter', sans-serif;
+      ">ปลดล็อกเข้าระบบ</button>
+    <div id="lock-error-msg" style="margin-top:12px; font-size:12px; color:#f87171; min-height:14px;"></div>
+  </div>
+</div>
+<script>
+  // 🔒 ตัวจัดการล็อกหน้าจอ — แยกเป็นสคริปต์อิสระ ไม่แตะ/ไม่ผูกกับตัวแปรหรือฟังก์ชันของระบบเทอร์มินอลด้านล่างเลย
+  (function () {
+    const ADMIN_PASSWORD = 'Pichai@223'; // 🔧 เปลี่ยนรหัสแอดมินได้ที่นี่
+    const lockScreenEl = document.getElementById('lock-screen');
+    const lockInputEl = document.getElementById('lock-password-input');
+    const lockBtnEl = document.getElementById('lock-submit-btn');
+    const lockErrorEl = document.getElementById('lock-error-msg');
+
+    function attemptUnlock() {
+      if (lockInputEl.value === ADMIN_PASSWORD) {
+        lockScreenEl.style.display = 'none';
+        document.body.style.overflow = '';
+      } else {
+        lockErrorEl.textContent = 'รหัสไม่ถูกต้อง กรุณาลองใหม่อีกครั้งครับ';
+        lockInputEl.value = '';
+        lockInputEl.focus();
+      }
+    }
+
+    lockBtnEl.addEventListener('click', attemptUnlock);
+    lockInputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') attemptUnlock();
+    });
+
+    document.body.style.overflow = 'hidden'; // กันสกอลหน้าตอนยังล็อกอยู่
+    lockInputEl.focus();
+  })();
+</script>
+
 <div class="bg-fx" aria-hidden="true">
   <span class="orb-1"></span>
   <span class="orb-2"></span>
