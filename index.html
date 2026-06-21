@@ -433,7 +433,9 @@
 </head>
 <body>
 
-<!-- 🔒 LOCK SCREEN: ต้องกรอกรหัสแอดมินก่อนเข้าใช้งานหน้านี้ — ถามรหัสทุกครั้งที่เปิด/รีโหลดหน้า (ไม่มีการจำการปลดล็อกข้ามเซสชัน)
+<!-- 🔒 LOCK SCREEN: ต้องล็อกอินด้วยบัญชีแอดมินผ่าน Firebase Authentication ก่อนเข้าใช้งานหน้านี้
+     เช็กกับเซิร์ฟเวอร์ Firebase จริง (ไม่ได้เทียบรหัสในไฟล์ JS ตรง ๆ แบบเดิมแล้ว)
+     ล็อกอินค้างไว้ข้ามการรีโหลดหน้า จนกว่าจะกดปุ่ม Logout เอง (browserLocalPersistence)
      ไม่ได้ไปแก้ไข/ยุ่งกับโลจิกของระบบเทอร์มินอลด้านล่างเลย เป็นแค่ฉากกั้นทับด้านบนสุด (z-index สูงสุด) -->
 <div id="lock-screen" style="
     position:fixed; inset:0; z-index:99999;
@@ -447,8 +449,13 @@
       font-family:'IBM Plex Mono', monospace;
     ">
     <div style="font-size:11px; letter-spacing:.18em; color:#5eead4; text-transform:uppercase; margin-bottom:6px;">TVE Tech System</div>
-    <div style="font-size:16px; font-weight:600; color:#eef1f7; margin-bottom:18px; font-family:'Inter', sans-serif;">กรุณากรอกรหัสแอดมินเพื่อเข้าใช้งาน</div>
-    <input type="password" id="lock-password-input" placeholder="รหัสแอดมิน…" autocomplete="off" style="
+    <div style="font-size:16px; font-weight:600; color:#eef1f7; margin-bottom:18px; font-family:'Inter', sans-serif;">เข้าสู่ระบบแอดมิน</div>
+    <input type="email" id="lock-email-input" placeholder="อีเมลแอดมิน…" autocomplete="username" style="
+        width:100%; box-sizing:border-box; background:#0a0c11; border:1px solid #232838; color:#eef1f7;
+        padding:12px 14px; border-radius:8px; font-family:'IBM Plex Mono', monospace; font-size:14px;
+        outline:none; margin-bottom:10px; text-align:center;
+      ">
+    <input type="password" id="lock-password-input" placeholder="รหัสผ่าน…" autocomplete="current-password" style="
         width:100%; box-sizing:border-box; background:#0a0c11; border:1px solid #232838; color:#eef1f7;
         padding:12px 14px; border-radius:8px; font-family:'IBM Plex Mono', monospace; font-size:14px;
         outline:none; margin-bottom:12px; text-align:center;
@@ -456,38 +463,92 @@
     <button id="lock-submit-btn" style="
         width:100%; background:#5eead4; color:#000; border:none; padding:12px;
         border-radius:8px; font-weight:600; font-size:13px; cursor:pointer; font-family:'Inter', sans-serif;
-      ">ปลดล็อกเข้าระบบ</button>
+      ">เข้าสู่ระบบ</button>
     <div id="lock-error-msg" style="margin-top:12px; font-size:12px; color:#f87171; min-height:14px;"></div>
   </div>
 </div>
-<script>
-  // 🔒 ตัวจัดการล็อกหน้าจอ — แยกเป็นสคริปต์อิสระ ไม่แตะ/ไม่ผูกกับตัวแปรหรือฟังก์ชันของระบบเทอร์มินอลด้านล่างเลย
-  (function () {
-    const ADMIN_PASSWORD = 'Pichai@223'; // 🔧 เปลี่ยนรหัสแอดมินได้ที่นี่
-    const lockScreenEl = document.getElementById('lock-screen');
-    const lockInputEl = document.getElementById('lock-password-input');
-    const lockBtnEl = document.getElementById('lock-submit-btn');
-    const lockErrorEl = document.getElementById('lock-error-msg');
 
-    function attemptUnlock() {
-      if (lockInputEl.value === ADMIN_PASSWORD) {
-        lockScreenEl.style.display = 'none';
-        document.body.style.overflow = '';
-      } else {
-        lockErrorEl.textContent = 'รหัสไม่ถูกต้อง กรุณาลองใหม่อีกครั้งครับ';
-        lockInputEl.value = '';
-        lockInputEl.focus();
+<script type="module">
+  // 🔒 ตัวจัดการล็อกอินแอดมินผ่าน Firebase Authentication — แยกเป็นโมดูลอิสระ
+  // ไม่แตะ/ไม่ผูกกับตัวแปรหรือฟังก์ชันของระบบเทอร์มินอลด้านล่างเลย
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getAuth,
+    setPersistence,
+    browserLocalPersistence,
+    onAuthStateChanged,
+    signInWithEmailAndPassword,
+    signOut
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+  // 🔧 Firebase config ของโปรเจกต์ deriv-signal3 (เป็นค่า public ใส่ฝั่ง client ได้ตามปกติ ไม่ใช่ secret key)
+  const firebaseConfig = {
+    apiKey: "AIzaSyBdcAy8tLMZ3jeGcPGOdbR7qF9DDh0Uidc",
+    authDomain: "deriv-signal3.firebaseapp.com",
+    projectId: "deriv-signal3",
+    storageBucket: "deriv-signal3.firebasestorage.app",
+    messagingSenderId: "1047757017057",
+    appId: "1:1047757017057:web:02cb845e7f8fc345988ca0",
+    measurementId: "G-ZV32T1XVJC"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const auth = getAuth(fbApp);
+
+  const lockScreenEl = document.getElementById('lock-screen');
+  const lockEmailEl = document.getElementById('lock-email-input');
+  const lockPasswordEl = document.getElementById('lock-password-input');
+  const lockBtnEl = document.getElementById('lock-submit-btn');
+  const lockErrorEl = document.getElementById('lock-error-msg');
+  const adminLogoutBtn = document.getElementById('admin-logout-btn');
+
+  // 🆕 จำการล็อกอินไว้ "ข้ามการรีโหลดหน้า" จนกว่าจะกด Logout เอง ตามที่ขอ
+  setPersistence(auth, browserLocalPersistence).catch((err) => console.error('Auth persistence error:', err));
+
+  function attemptLogin() {
+    lockErrorEl.textContent = '';
+    lockBtnEl.disabled = true;
+    lockBtnEl.textContent = 'กำลังตรวจสอบ…';
+    const email = lockEmailEl.value.trim();
+    const password = lockPasswordEl.value;
+
+    signInWithEmailAndPassword(auth, email, password)
+      .catch(() => {
+        lockErrorEl.textContent = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้งครับ';
+        lockPasswordEl.value = '';
+        lockPasswordEl.focus();
+      })
+      .finally(() => {
+        lockBtnEl.disabled = false;
+        lockBtnEl.textContent = 'เข้าสู่ระบบ';
+      });
+  }
+
+  lockBtnEl.addEventListener('click', attemptLogin);
+  [lockEmailEl, lockPasswordEl].forEach((el) => {
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter') attemptLogin(); });
+  });
+
+  if (adminLogoutBtn) {
+    adminLogoutBtn.addEventListener('click', () => {
+      if (confirm('ต้องการออกจากระบบแอดมินใช่ไหมครับ? ครั้งหน้าจะต้องล็อกอินใหม่อีกครั้ง')) {
+        signOut(auth);
       }
-    }
-
-    lockBtnEl.addEventListener('click', attemptUnlock);
-    lockInputEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') attemptUnlock();
     });
+  }
 
-    document.body.style.overflow = 'hidden'; // กันสกอลหน้าตอนยังล็อกอยู่
-    lockInputEl.focus();
-  })();
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      lockScreenEl.style.display = 'none';
+      document.body.style.overflow = '';
+      if (adminLogoutBtn) adminLogoutBtn.style.display = 'inline-flex';
+    } else {
+      lockScreenEl.style.display = 'flex';
+      document.body.style.overflow = 'hidden';
+      if (adminLogoutBtn) adminLogoutBtn.style.display = 'none';
+      lockEmailEl.focus();
+    }
+  });
 </script>
 
 <div class="bg-fx" aria-hidden="true">
@@ -501,11 +562,16 @@
 
   <header>
     <div class="brand">
-      <span class="mark">TVT Tech System</span>
+      <span class="mark">Terravolteco</span>
       <h1>Market Structure Terminal</h1>
     </div>
     
     <div class="header-controls">
+      <button id="admin-logout-btn" style="
+          display:none; background:rgba(248, 113, 113, 0.15); color:#f87171;
+          border:1px solid rgba(248, 113, 113, 0.3); padding:8px 12px; border-radius:8px;
+          font-size:11px; font-weight:600; cursor:pointer; font-family:'Inter', sans-serif;
+        ">🔒 Logout (Admin)</button>
       <button class="theme-toggle-btn" id="theme-toggle" title="สลับโหมด มืด/สว่าง">🌙</button>
       <div class="conn">
         <span class="dot" id="conn-dot"></span>
