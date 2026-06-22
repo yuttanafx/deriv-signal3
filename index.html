@@ -1118,50 +1118,21 @@
       ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
     }
   }
- let isExecuting = false;
- // --- วางตัวแปรสถานะไว้ใน Global Scope (ก่อนฟังก์ชัน) ---
-let isExecuting = false;
 
-function executeRealContract(symbol, direction) {
-    // 1. เพิ่มเช็คสถานะการทำงานปัจจุบัน
-    if (isExecuting) {
-        console.warn("ระบบกำลังส่งคำสั่งซื้อก่อนหน้าอยู่... ปฏิเสธคำสั่งซ้ำ");
-        return; 
-    }
-    
-    // 2. ตรวจสอบการล็อกระบบกลาง (Global Martingale Lock)
-    if (isGlobalOrderLocked()) {
-        addLog(`⏭️ [${symbol}] สัญญาณถูกระงับ: มีออเดอร์ค้างอยู่แล้ว`);
-        return;
-    }
-
+  function executeRealContract(symbol, direction) {
     ensureState(symbol);
     const s = state[symbol];
 
-    // 3. เริ่มสถานะการยิงออเดอร์
-    isExecuting = true; 
-    
-    // คำนวณ Stake (ป้องกันทศนิยมเพี้ยน)
-    const currentStake = parseFloat((baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(2));
-    const contractType = direction === 'HIGHER' ? 'CALL' : 'PUT';
-
-    // ... (ส่วนการเตรียม Request ตามเดิมของคุณ) ...
-
-    // 4. ส่งออเดอร์
-    if (!isAuthorized || !ws || ws.readyState !== WebSocket.OPEN) {
-        // [VIRTUAL MODE]
-        isExecuting = false; // ปลดล็อกทันทีสำหรับโหมดจำลอง
-        // ... โค้ดเดิมสำหรับ Local Contract ...
-    } else {
-        // [REAL/API MODE]
-        ws.send(JSON.stringify(orderRequest));
-        
-        // หมายเหตุ: หากต้องการให้ปลดล็อกหลังจาก API ตอบกลับมา (ดีกว่า) 
-        // คุณควรย้าย isExecuting = false ไปไว้ในส่วนที่จัดการ msg_type === 'buy' ใน onMessage แทน
-        // แต่ถ้าจะเอาแบบง่าย: ใส่ setTimeout ปลดล็อกใน 1 วินาที เพื่อป้องกัน API ตอบกลับช้า
-        setTimeout(() => { isExecuting = false; }, 1000); 
+    // ✏️ เงื่อนไขใหม่ (แก้ไขตามที่สั่ง): ไม่ใช้ Win Rate เลือกสัญลักษณ์อีกต่อไป
+    // เปลี่ยนเป็น "สัญลักษณ์ใดก็ได้" ที่สัญญาณผ่านตัวกรอง (logic เดิม + indicator filter) ก่อน จะได้ยิงก่อน
+    // เงื่อนไขเดียวที่ยังคุมอยู่คือ: ต้องรอออเดอร์ก่อนหน้า (ไม่ว่าจะเป็นสัญลักษณ์ไหน) หมดอายุ/ปิดดีลก่อน
+    // ถึงจะยิงไม้ใหม่ได้ — เพื่อให้สเตปมาติงเกลกลาง (globalStepCount) ยังนับต่อเนื่องถูกต้อง
+    // ดีลค้างได้แค่ 1 ดีลทั้งระบบ (ครอบทุกสัญลักษณ์ ไม่ใช่แค่ตัวนี้)
+    if (isGlobalOrderLocked()) {
+      addLog(`⏭️ [${symbol}] มีสัญญาณเบรคเอาท์ แต่มีออเดอร์ค้างอยู่ที่ ${globalLockedSymbol} — รอให้หมดอายุก่อนจึงยิงไม้ใหม่ได้`);
+      return;
     }
-}
+
     // 🆕 ใช้ "สเตปกลาง" (globalStepCount) แทนสเตปรายสัญลักษณ์ ในการคำนวณขนาดทุนไม้ต่อไป
     const currentStake = parseFloat((baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(2));
     const contractType = direction === 'HIGHER' ? 'CALL' : 'PUT';
