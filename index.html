@@ -1118,20 +1118,82 @@
       ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
     }
   }
-
+// ประกาศที่ส่วน Global
+let isExecuting = false;
   function executeRealContract(symbol, direction) {
+    // 1. เช็กสถานะการทำงาน (ป้องกันการกดรัว)
+    if (isExecuting) {
+        addLog(`⏳ [System] ระบบกำลังประมวลผลคำสั่งซื้อ... กรุณารอสักครู่`);
+        return;
+    }
+    
+    // 2. เช็ก Global Lock
+    if (isGlobalOrderLocked()) {
+        addLog(`⏭️ [${symbol}] รอดีลของ ${globalLockedSymbol} ปิดก่อนครับ`);
+        return;
+    }
+
     ensureState(symbol);
     const s = state[symbol];
+    
+    // 3. เริ่มล็อกสถานะ
+    isExecuting = true;
 
-    // ✏️ เงื่อนไขใหม่ (แก้ไขตามที่สั่ง): ไม่ใช้ Win Rate เลือกสัญลักษณ์อีกต่อไป
-    // เปลี่ยนเป็น "สัญลักษณ์ใดก็ได้" ที่สัญญาณผ่านตัวกรอง (logic เดิม + indicator filter) ก่อน จะได้ยิงก่อน
-    // เงื่อนไขเดียวที่ยังคุมอยู่คือ: ต้องรอออเดอร์ก่อนหน้า (ไม่ว่าจะเป็นสัญลักษณ์ไหน) หมดอายุ/ปิดดีลก่อน
-    // ถึงจะยิงไม้ใหม่ได้ — เพื่อให้สเตปมาติงเกลกลาง (globalStepCount) ยังนับต่อเนื่องถูกต้อง
-    // ดีลค้างได้แค่ 1 ดีลทั้งระบบ (ครอบทุกสัญลักษณ์ ไม่ใช่แค่ตัวนี้)
-    if (isGlobalOrderLocked()) {
-      addLog(`⏭️ [${symbol}] มีสัญญาณเบรคเอาท์ แต่มีออเดอร์ค้างอยู่ที่ ${globalLockedSymbol} — รอให้หมดอายุก่อนจึงยิงไม้ใหม่ได้`);
-      return;
+    try {
+        const currentStake = parseFloat((baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(2));
+        const contractType = direction === 'HIGHER' ? 'CALL' : 'PUT';
+
+        let durationNumber = 5;
+        let durationUnitStr = 't';
+        if (durationVal === '10_ticks') { durationNumber = 10; }
+        else if (durationVal === '5_min') { durationNumber = 5; durationUnitStr = 'm'; }
+        else if (durationVal === '15_min') { durationNumber = 15; durationUnitStr = 'm'; }
+
+        const calculatedWaitTicks = durationToWaitTicks(durationVal);
+        globalLockedSymbol = symbol;
+
+        if (!isAuthorized || !ws || ws.readyState !== WebSocket.OPEN) {
+            // โหมด Virtual
+            const localContract = {
+                id: 'ID-VIRTUAL-' + Math.floor(Math.random() * 89999 + 10000),
+                dir: direction,
+                entryPrice: s.lastPrice,
+                entryTick: s.tickCounter,
+                resolveAtTick: s.tickCounter + calculatedWaitTicks,
+                step: globalStepCount + 1,
+                stakeValue: currentStake,
+                apiTracked: false,
+                isVirtual: true
+            };
+            s.pendingContracts.push(localContract);
+            addLog(`📢 [VIRTUAL] ออกไม้กลาง M-${globalStepCount + 1} ($${currentStake})`);
+            renderGlobalBanner();
+        } else {
+            // โหมด API จริง
+            const orderRequest = {
+                buy: 1, price: currentStake,
+                parameters: {
+                    amount: currentStake, basis: 'stake', contract_type: contractType,
+                    currency: 'USD', duration: durationNumber, duration_unit: durationUnitStr, symbol: symbol
+                }
+            };
+            ws.send(JSON.stringify(orderRequest));
+            
+            s.pendingContracts.push({
+                id: 'AWAITING-API-ID', dir: direction, entryPrice: s.lastPrice,
+                entryTick: s.tickCounter, resolveAtTick: s.tickCounter + calculatedWaitTicks,
+                step: globalStepCount + 1, stakeValue: currentStake, apiTracked: false, isVirtual: false
+            });
+            addLog(`🎯 [${symbol}] ส่งคำสั่งซื้อแล้ว M-${globalStepCount + 1} ($${currentStake})`);
+        }
+    } catch (e) {
+        addLog(`🚨 Error: ${e.message}`);
+        globalLockedSymbol = null; // ปลดล็อกถ้าเกิด Error
+    } finally {
+        // 4. ปลดล็อกสถานะการทำงานเสมอไม่ว่าผลจะเป็นอย่างไร
+        isExecuting = false;
     }
+}
 
     // 🆕 ใช้ "สเตปกลาง" (globalStepCount) แทนสเตปรายสัญลักษณ์ ในการคำนวณขนาดทุนไม้ต่อไป
     const currentStake = parseFloat((baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(2));
