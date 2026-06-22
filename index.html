@@ -670,16 +670,27 @@
   let focusedSymbol = 'R_75';
   let durationVal = '5_ticks';
 
-  // 🔧 FIX: lookbackPeriod เดิมผูกกับ duration ที่เลือก (5_min -> 260, 15_min -> 700 ticks)
+  // 🔧 FIX (เดิม): lookbackPeriod เดิมผูกกับ duration ที่เลือก (5_min -> 260, 15_min -> 700 ticks)
   // ทำให้ resistance/support คำนวณจากหน้าต่างยาวเกินไป โอกาสที่ราคาจะ "ทำนิวไฮ/นิวโลว์"
   // ของ 260-700 ติ๊กที่ผ่านมาแบบสุ่มนั้นต่ำมาก (~1/N) บอทจึงแทบไม่เคยเข้าเงื่อนไขยิงออเดอร์เลย
   // เมื่อตั้ง expiry เป็น 5 นาที/15 นาที ทั้งที่จริง ๆ ไม่มี error จาก API แต่อย่างใด
   //
-  // ตอนนี้แยกออกมาเป็นค่าคงที่ SIGNAL_LOOKBACK สำหรับวิเคราะห์โครงสร้างราคาเท่านั้น
-  // ส่วน durationVal จะมีหน้าที่แค่กำหนด duration/duration_unit ที่ส่งให้ Deriv API
-  // และเวลารอผลของดีล (virtual/local tracking) ไม่เกี่ยวกับความถี่ของสัญญาณอีกต่อไป
-  const SIGNAL_LOOKBACK = 30;
-  let lookbackPeriod = SIGNAL_LOOKBACK;
+  // ✏️ (ปรับใหม่ตามที่ขอ) ตอนนี้กลับมาผูก "หน้าต่างกรองราคา/จุดเข้า" กับ duration ที่เลือกอีกครั้ง
+  // แต่ทำเป็น 2 ชั้นแยกกันแทนค่าคงที่ตัวเดียวแบบเดิม เพื่อไม่ให้เจอปัญหาเดิม (รอนิวไฮ/นิวโลว์ของ
+  // หน้าต่างใหญ่เกินจนแทบไม่เข้าเงื่อนไข):
+  //   - entryLookbackTicks : หน้าต่าง "ใกล้/เร็ว" เท่ากับจำนวน ticks ของ duration ที่เลือก
+  //                          (เช่นเลือก 5 นาที -> 150 ticks) ใช้คำนวณ resistance/support ที่ใช้
+  //                          ตัดสินจุดเข้า (breakout) — สอดคล้องกับเวลาที่ออเดอร์จะหมดอายุจริง
+  //   - mtfLookbackTicks  : หน้าต่าง "ใหญ่กว่า" = entryLookbackTicks × MTF_WINDOW_MULTIPLIER
+  //                          ใช้เป็นมัลติไทม์เฟรมระดับบนคุมทิศทาง (bias) ก่อนจะยอมให้ breakout
+  //                          ของหน้าต่างเล็กผ่าน — ตัวใหญ่ "คุม" ตัวเล็กตามแนวคิดที่ขอมา
+  // โลจิกเงื่อนไขออกออเดอร์ (compression/breakout/bias check) ยังเหมือนเดิมทุกอย่าง
+  // เปลี่ยนแค่ "ที่มาของตัวเลข" resistance/support/trend ให้สัมพันธ์กับ duration เท่านั้น
+  const MTF_WINDOW_MULTIPLIER = 4; // ปรับได้: ยิ่งสูง มัลติไทม์เฟรมใหญ่จะ "ช้า/มั่นคง" กว่าหน้าต่างจุดเข้ามากขึ้น
+  const MIN_ENTRY_LOOKBACK = 15;   // กันไว้ไม่ให้หน้าต่างจุดเข้าเล็กเกินไปตอนเลือก duration แบบไม่กี่ ticks
+  let entryLookbackTicks = MIN_ENTRY_LOOKBACK;
+  let mtfLookbackTicks = MIN_ENTRY_LOOKBACK * MTF_WINDOW_MULTIPLIER;
+  let lookbackPeriod = mtfLookbackTicks; // ขนาด ticks array ที่เก็บไว้ ต้องเก็บให้พอสำหรับหน้าต่างใหญ่
   let allowedMaxSteps = 5;
   let martingaleMultiplier = 2.0; 
 
@@ -745,9 +756,20 @@
   function durationToWaitTicks(v) {
     if (v === '5_ticks') return 5;
     if (v === '10_ticks') return 10;
+    if (v === '1_min') return 30;   // 🆕 เติมเคสที่ขาดไป (สมมติ ~30 ticks/นาที สอดคล้องอัตราของ 5min/15min ด้านล่าง)
     if (v === '5_min') return 150; 
     if (v === '15_min') return 450;
     return 5;
+  }
+
+  // 🆕 คำนวณหน้าต่าง "จุดเข้า" (entryLookbackTicks) และ "มัลติไทม์เฟรมใหญ่คุม" (mtfLookbackTicks)
+  // จาก duration ที่เลือก ณ ขณะนั้น แล้วอัปเดต lookbackPeriod (ขนาด ticks array ที่เก็บไว้จริง)
+  // เรียกตอนเปลี่ยน duration และตอนเริ่มระบบ — ไม่กระทบเงื่อนไขออกออเดอร์ใด ๆ แค่เปลี่ยนที่มาตัวเลข
+  function recomputeLookbackWindows() {
+    const rawTicks = durationToWaitTicks(durationVal);
+    entryLookbackTicks = Math.max(MIN_ENTRY_LOOKBACK, rawTicks);
+    mtfLookbackTicks = entryLookbackTicks * MTF_WINDOW_MULTIPLIER;
+    lookbackPeriod = mtfLookbackTicks;
   }
 
   let state = {};
@@ -965,6 +987,7 @@
 
     if (durationVal === '5_ticks') { durationNumber = 5; durationUnitStr = 't'; }
     else if (durationVal === '10_ticks') { durationNumber = 10; durationUnitStr = 't'; }
+    else if (durationVal === '1_min') { durationNumber = 1; durationUnitStr = 'm'; }
     else if (durationVal === '5_min') { durationNumber = 5; durationUnitStr = 'm'; }
     else if (durationVal === '15_min') { durationNumber = 15; durationUnitStr = 'm'; }
 
@@ -1189,13 +1212,14 @@
   }
 
   durationSelect.addEventListener('change', (e) => {
-    // durationVal มีผลแค่กับ duration/duration_unit ที่ส่ง API และเวลารอผลของดีล
-    // ไม่กระทบ lookbackPeriod ของการวิเคราะห์โครงสร้างราคาอีกต่อไป (คงที่ที่ SIGNAL_LOOKBACK)
+    // ✏️ ตอนนี้ durationVal มีผลทั้งกับ duration/duration_unit ที่ส่ง API, เวลารอผลของดีล
+    // และหน้าต่างกรองราคา (entryLookbackTicks + mtfLookbackTicks) ที่ใช้คำนวณ resistance/support/bias
     durationVal = e.target.value;
+    recomputeLookbackWindows(); // 🆕 อัปเดตหน้าต่างกรองราคาให้สัมพันธ์กับ duration ใหม่ที่เลือก
     watchedSymbols.forEach(sym => { state[sym] = freshState(); });
     globalStepCount = 0; globalLockedSymbol = null;
     renderWatchGrid(); if (watchedSymbols.includes(focusedSymbol)) renderFocused(focusedSymbol);
-    addLog(`⏰ เปลี่ยนเวลาสัญญาร่วมเป็น: ${durationSelect.options[durationSelect.selectedIndex].text} (ล้างประวัติคำนวณฐานใหม่ และรีเซ็ตสเตปมาติงเกลกลาง)`);
+    addLog(`⏰ เปลี่ยนเวลาสัญญาร่วมเป็น: ${durationSelect.options[durationSelect.selectedIndex].text} (จุดเข้า: ${entryLookbackTicks} ticks / MTF ใหญ่คุม: ${mtfLookbackTicks} ticks — ล้างประวัติคำนวณฐานใหม่ และรีเซ็ตสเตปมาติงเกลกลาง)`);
   });
 
   function connectWS() {
@@ -1288,12 +1312,17 @@
 
     evaluatePendingContracts(sym, price, s.tickCounter);
 
-    if (s.ticks.length >= 15) {
-      s.resistance = Math.max(...s.ticks.slice(0, -2));
-      s.support = Math.min(...s.ticks.slice(0, -2));
+    if (s.ticks.length >= entryLookbackTicks) {
+      // ✏️ เปลี่ยนที่มาของ resistance/support: ใช้แค่หน้าต่าง "จุดเข้า" (entryLookbackTicks ticks ล่าสุด)
+      // ที่อ้างอิงตาม duration ที่เลือกไว้ (เช่นเลือก 5 นาที -> มองย้อนหลัง 150 ticks) แทนการดูทั้ง array
+      const srWindow = s.ticks.slice(-entryLookbackTicks);
+      s.resistance = Math.max(...srWindow.slice(0, -2));
+      s.support = Math.min(...srWindow.slice(0, -2));
 
-      const largePeriod = s.ticks.length; const shortPeriod = 4;
-      const mtfMainTrend = s.ticks.reduce((a,b)=>a+b,0) / largePeriod; 
+      // ✏️ เปลี่ยนที่มาของ mtfMainTrend: ใช้ "ทั้ง array" ที่เก็บไว้ (ยาวสุดถึง mtfLookbackTicks)
+      // เป็นมัลติไทม์เฟรมที่ "ใหญ่กว่าคุม" หน้าต่างจุดเข้าด้านบน ตามแนวคิดที่ขอมา
+      const shortPeriod = 4;
+      const mtfMainTrend = s.ticks.reduce((a,b)=>a+b,0) / s.ticks.length; 
       const currentMomentum = s.ticks.slice(-shortPeriod).reduce((a,b)=>a+b,0) / shortPeriod; 
 
       let majorBias = 'SIDEWAYS';
@@ -1307,7 +1336,7 @@
 
       if (price > midMin && price < midMax) {
         s.sigType = 'BLOCK'; s.sigText = 'COMPRESSION: MID-ZONE';
-        s.sigSub = `⏳ สภาพราคาบีบอัดตัวในกรอบสะสมพลัง รอจังหวะระเบิดเบรคเอาท์ (เทรนหลัก: ${majorBias})`;
+        s.sigSub = `⏳ สภาพราคาบีบอัดตัวในกรอบสะสมพลัง รอจังหวะระเบิดเบรคเอาท์ (เทรนหลัก: ${majorBias} | จุดเข้า: ${entryLookbackTicks}t / MTF คุม: ${mtfLookbackTicks}t)`;
       } 
       else if (price >= s.resistance && majorBias === 'BULLISH') {
         s.sigType = 'BUY'; s.sigText = 'BREAKOUT: HIGHER';
@@ -1429,6 +1458,7 @@
     }
   }, 5000);
 
+  recomputeLookbackWindows(); // 🆕 ตั้งค่าหน้าต่างกรองราคาเริ่มต้นให้ตรงกับ duration เริ่มต้น (5_ticks)
   ensureState(focusedSymbol); renderPicker(); renderWatchGrid(); renderFocused(focusedSymbol); renderGlobalBanner(); connectWS();
 </script>
 
