@@ -846,6 +846,7 @@
   // ──────────────────────────────────────────────────────────────────
   let globalStepCount = 0;
   let globalLockedSymbol = null; // สัญลักษณ์ที่กำลังมีดีลค้างอยู่ (ล็อกทั้งระบบ)
+  let orderInFlight = false; // 🆕 กัน tick 2 ตัวเข้ามาพร้อมกันก่อน globalLockedSymbol จะถูกตั้งค่า
 
   // ──────────────────────────────────────────────────────────────────
   // 🆕 INDICATOR FILTER TOGGLES — เปิด/ปิดได้ทีละตัว ไม่กระทบสัญญาณเดิม
@@ -1120,6 +1121,7 @@
   }
 
   function executeRealContract(symbol, direction) {
+    if (orderInFlight) { addLog(`⏭️ [${symbol}] ชนกับคำสั่งที่กำลังประมวลผลอยู่ — ข้ามไม้นี้ป้องกันยิงซ้ำ`); return; }
     ensureState(symbol);
     const s = state[symbol];
 
@@ -1132,6 +1134,7 @@
       addLog(`⏭️ [${symbol}] มีสัญญาณเบรคเอาท์ แต่มีออเดอร์ค้างอยู่ที่ ${globalLockedSymbol} — รอให้หมดอายุก่อนจึงยิงไม้ใหม่ได้`);
       return;
     }
+    orderInFlight = true;
 
     // 🆕 ใช้ "สเตปกลาง" (globalStepCount) แทนสเตปรายสัญลักษณ์ ในการคำนวณขนาดทุนไม้ต่อไป
     const currentStake = parseFloat((baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(2));
@@ -1166,6 +1169,7 @@
       };
       s.pendingContracts.push(localContract);
       renderGlobalBanner();
+      orderInFlight = false; // 🆕 ปลดล็อกทันทีสำหรับโหมด virtual
       return;
     }
 
@@ -1184,6 +1188,7 @@
     };
 
     ws.send(JSON.stringify(orderRequest));
+    orderInFlight = false; // 🆕 ส่งคำสั่งไปแล้ว ปลดล็อก (globalLockedSymbol ยังคงล็อกอยู่จนกว่าดีลจะปิด)
     
     const apiContract = {
       id: 'AWAITING-API-ID',
@@ -1381,9 +1386,11 @@
     if (ws) { try { ws.close(); } catch(e){} }
     ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`);
 
-    ws.onopen = () => {
+   ws.onopen = () => {
       connDot.className = 'dot live'; apiStatus.textContent = 'LIVE';
       addLog('📡 เชื่อมต่อเกตเวย์รับข้อมูลสดผ่าน Deriv WebSocket Server');
+      // 🆕 BUG 7 FIX: ล้าง subscription เก่าก่อนเสมอ ป้องกัน reconnect แล้วได้ tick ซ้ำ 2 สตรีม
+      ws.send(JSON.stringify({ forget_all: "ticks" }));
       if(apiToken) sendAuthorize();
       watchedSymbols.forEach(sym => subscribeSymbol(sym));
     };
