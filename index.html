@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Terravolteco — Market Structure Terminal (Logout/Disconnect Fix)</title>
+<title>TVT Tech System — Market Structure Terminal (Logout/Disconnect Fix)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -433,6 +433,124 @@
 </head>
 <body>
 
+<!-- 🔒 LOCK SCREEN: ต้องล็อกอินด้วยบัญชีแอดมินผ่าน Firebase Authentication ก่อนเข้าใช้งานหน้านี้
+     เช็กกับเซิร์ฟเวอร์ Firebase จริง (ไม่ได้เทียบรหัสในไฟล์ JS ตรง ๆ แบบเดิมแล้ว)
+     ล็อกอินค้างไว้ข้ามการรีโหลดหน้า จนกว่าจะกดปุ่ม Logout เอง (browserLocalPersistence)
+     ไม่ได้ไปแก้ไข/ยุ่งกับโลจิกของระบบเทอร์มินอลด้านล่างเลย เป็นแค่ฉากกั้นทับด้านบนสุด (z-index สูงสุด) -->
+<div id="lock-screen" style="
+    position:fixed; inset:0; z-index:99999;
+    display:flex; align-items:center; justify-content:center;
+    background:#05060a; padding:20px;
+  ">
+  <div style="
+      width:100%; max-width:340px;
+      background:#11141c; border:1px solid #232838; border-radius:12px;
+      padding:28px 24px; text-align:center;
+      font-family:'IBM Plex Mono', monospace;
+    ">
+    <div style="font-size:11px; letter-spacing:.18em; color:#5eead4; text-transform:uppercase; margin-bottom:6px;">TVE Tech System</div>
+    <div style="font-size:16px; font-weight:600; color:#eef1f7; margin-bottom:18px; font-family:'Inter', sans-serif;">เข้าสู่ระบบแอดมิน</div>
+    <input type="email" id="lock-email-input" placeholder="อีเมลแอดมิน…" autocomplete="username" style="
+        width:100%; box-sizing:border-box; background:#0a0c11; border:1px solid #232838; color:#eef1f7;
+        padding:12px 14px; border-radius:8px; font-family:'IBM Plex Mono', monospace; font-size:14px;
+        outline:none; margin-bottom:10px; text-align:center;
+      ">
+    <input type="password" id="lock-password-input" placeholder="รหัสผ่าน…" autocomplete="current-password" style="
+        width:100%; box-sizing:border-box; background:#0a0c11; border:1px solid #232838; color:#eef1f7;
+        padding:12px 14px; border-radius:8px; font-family:'IBM Plex Mono', monospace; font-size:14px;
+        outline:none; margin-bottom:12px; text-align:center;
+      ">
+    <button id="lock-submit-btn" style="
+        width:100%; background:#5eead4; color:#000; border:none; padding:12px;
+        border-radius:8px; font-weight:600; font-size:13px; cursor:pointer; font-family:'Inter', sans-serif;
+      ">เข้าสู่ระบบ</button>
+    <div id="lock-error-msg" style="margin-top:12px; font-size:12px; color:#f87171; min-height:14px;"></div>
+  </div>
+</div>
+
+<script type="module">
+  // 🔒 ตัวจัดการล็อกอินแอดมินผ่าน Firebase Authentication — แยกเป็นโมดูลอิสระ
+  // ไม่แตะ/ไม่ผูกกับตัวแปรหรือฟังก์ชันของระบบเทอร์มินอลด้านล่างเลย
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getAuth,
+    setPersistence,
+    browserLocalPersistence,
+    onAuthStateChanged,
+    signInWithEmailAndPassword,
+    signOut
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+  // 🔧 Firebase config ของโปรเจกต์ deriv-signal3 (เป็นค่า public ใส่ฝั่ง client ได้ตามปกติ ไม่ใช่ secret key)
+  const firebaseConfig = {
+    apiKey: "AIzaSyBdcAy8tLMZ3jeGcPGOdbR7qF9DDh0Uidc",
+    authDomain: "deriv-signal3.firebaseapp.com",
+    projectId: "deriv-signal3",
+    storageBucket: "deriv-signal3.firebasestorage.app",
+    messagingSenderId: "1047757017057",
+    appId: "1:1047757017057:web:02cb845e7f8fc345988ca0",
+    measurementId: "G-ZV32T1XVJC"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const auth = getAuth(fbApp);
+
+  const lockScreenEl = document.getElementById('lock-screen');
+  const lockEmailEl = document.getElementById('lock-email-input');
+  const lockPasswordEl = document.getElementById('lock-password-input');
+  const lockBtnEl = document.getElementById('lock-submit-btn');
+  const lockErrorEl = document.getElementById('lock-error-msg');
+  const adminLogoutBtn = document.getElementById('admin-logout-btn');
+
+  // 🆕 จำการล็อกอินไว้ "ข้ามการรีโหลดหน้า" จนกว่าจะกด Logout เอง ตามที่ขอ
+  setPersistence(auth, browserLocalPersistence).catch((err) => console.error('Auth persistence error:', err));
+
+  function attemptLogin() {
+    lockErrorEl.textContent = '';
+    lockBtnEl.disabled = true;
+    lockBtnEl.textContent = 'กำลังตรวจสอบ…';
+    const email = lockEmailEl.value.trim();
+    const password = lockPasswordEl.value;
+
+    signInWithEmailAndPassword(auth, email, password)
+      .catch(() => {
+        lockErrorEl.textContent = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้งครับ';
+        lockPasswordEl.value = '';
+        lockPasswordEl.focus();
+      })
+      .finally(() => {
+        lockBtnEl.disabled = false;
+        lockBtnEl.textContent = 'เข้าสู่ระบบ';
+      });
+  }
+
+  lockBtnEl.addEventListener('click', attemptLogin);
+  [lockEmailEl, lockPasswordEl].forEach((el) => {
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter') attemptLogin(); });
+  });
+
+  if (adminLogoutBtn) {
+    adminLogoutBtn.addEventListener('click', () => {
+      if (confirm('ต้องการออกจากระบบแอดมินใช่ไหมครับ? ครั้งหน้าจะต้องล็อกอินใหม่อีกครั้ง')) {
+        signOut(auth);
+      }
+    });
+  }
+
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      lockScreenEl.style.display = 'none';
+      document.body.style.overflow = '';
+      if (adminLogoutBtn) adminLogoutBtn.style.display = 'inline-flex';
+    } else {
+      lockScreenEl.style.display = 'flex';
+      document.body.style.overflow = 'hidden';
+      if (adminLogoutBtn) adminLogoutBtn.style.display = 'none';
+      lockEmailEl.focus();
+    }
+  });
+</script>
+
 <div class="bg-fx" aria-hidden="true">
   <span class="orb-1"></span>
   <span class="orb-2"></span>
@@ -444,11 +562,16 @@
 
   <header>
     <div class="brand">
-      <span class="mark">Terravolteco</span>
+      <span class="mark">TVE Tech System</span>
       <h1>Market Structure Terminal</h1>
     </div>
     
     <div class="header-controls">
+      <button id="admin-logout-btn" style="
+          display:none; background:rgba(248, 113, 113, 0.15); color:#f87171;
+          border:1px solid rgba(248, 113, 113, 0.3); padding:8px 12px; border-radius:8px;
+          font-size:11px; font-weight:600; cursor:pointer; font-family:'Inter', sans-serif;
+        ">🔒 Logout (Admin)</button>
       <button class="theme-toggle-btn" id="theme-toggle" title="สลับโหมด มืด/สว่าง">🌙</button>
       <div class="conn">
         <span class="dot" id="conn-dot"></span>
@@ -474,6 +597,18 @@
         <span>Balance: <b class="balance-val" id="acc-balance">$0.00</b></span>
       </div>
       <button class="disconnect-btn" id="api-disconnect-btn">🔒 สลับบัญชี / Logout</button>
+    </div>
+  </div>
+
+  <!-- 🆕 VIRTUAL DEMO BALANCE PANEL: ยอดเงินเดโมทดสอบจำลองฝั่ง client เริ่มต้นที่ $10,000
+       แสดงเฉพาะตอนยังไม่ authorize ผ่าน API จริง (โหมดทดสอบ/รัน virtual) ไม่เกี่ยวกับ
+       ยอดเงินจริงที่ดึงจาก Deriv balance subscription (account-info-display ด้านบน) -->
+  <div class="api-panel" id="virtual-balance-panel" style="padding:10px 14px;">
+    <div class="account-info" style="justify-content:flex-start;">
+      <div class="account-meta-group">
+        <span class="badge-mode demo">DEMO TEST</span>
+        <span>ยอดเงินเดโมทดสอบ (จำลองในเครื่อง ไม่เกี่ยวกับยอด Deriv จริง): <b class="balance-val" id="virtual-balance-val">$10,000.00</b></span>
+      </div>
     </div>
   </div>
 
@@ -527,6 +662,10 @@
             <option value="2.5">x2.5 (ทบแบบดึงกำไรครอบคลุมพิเศษ)</option>
             <option value="3.0">x3.0 (ทบบ้าระห่ำ ดึงทุนคืนไวสุด)</option>
           </select>
+        </div>
+        <div class="field" style="grid-column: span 2; margin-top: 4px;">
+          <label for="base-stake-input">💵 ทุนเริ่มต้นต่อไม้ (Base Stake $)</label>
+          <input type="number" id="base-stake-input" class="api-input" style="width:100%; padding:11px 12px;" min="0.35" step="0.01" value="1.00">
         </div>
         <div class="field" style="grid-column: span 2; margin-top: 4px;">
           <label for="max-steps-select">จำนวนไม้สูงสุด (Martingale Layer Limit)</label>
@@ -664,33 +803,30 @@
   let apiToken = '';
   let isAuthorized = false;
   let accountMode = 'demo'; 
-  let baseStake = 1.0; 
+  let baseStake = 1.0; // 🆕 ตอนนี้ตั้งค่าได้จาก #base-stake-input (ดูตัวจัดการ event ด้านล่าง) ค่าเริ่มต้นยังคงเป็น 1.0 เหมือนเดิม
+
+  // 🆕 VIRTUAL DEMO BALANCE — ยอดเงินเดโมทดสอบจำลองฝั่ง client เริ่มต้นที่ $10,000
+  // ใช้แสดง/อัปเดตเฉพาะตอนดีลที่ปิดเป็นดีลจำลอง (isVirtual: true, คือยังไม่ authorize ผ่าน API จริง)
+  // ไม่กระทบยอดเงินจริงจาก Deriv balance subscription (accBalance) และไม่กระทบโลจิกสัญญาณ/มาติงเกลเดิมเลย
+  let virtualDemoBalance = 10000;
+  // ⚠️ Deriv ไม่ส่ง payout จริงมาให้ฝั่ง client ก่อนซื้อ (ต้องขอ price proposal) จึง "ประมาณการ" ไว้ที่ 85%
+  // ใช้คำนวณ P/L ของดีลจำลองเพื่อแสดงผลเท่านั้น ไม่ใช่ตัวเลขที่ยิงไปจริงกับ Deriv
+  const VIRTUAL_PAYOUT_RATIO = 0.85;
 
   let watchedSymbols = ['R_75', 'R_100', '1HZ75V'];
   let focusedSymbol = 'R_75';
   let durationVal = '5_ticks';
 
-  // 🔧 FIX (เดิม): lookbackPeriod เดิมผูกกับ duration ที่เลือก (5_min -> 260, 15_min -> 700 ticks)
+  // 🔧 FIX: lookbackPeriod เดิมผูกกับ duration ที่เลือก (5_min -> 260, 15_min -> 700 ticks)
   // ทำให้ resistance/support คำนวณจากหน้าต่างยาวเกินไป โอกาสที่ราคาจะ "ทำนิวไฮ/นิวโลว์"
   // ของ 260-700 ติ๊กที่ผ่านมาแบบสุ่มนั้นต่ำมาก (~1/N) บอทจึงแทบไม่เคยเข้าเงื่อนไขยิงออเดอร์เลย
   // เมื่อตั้ง expiry เป็น 5 นาที/15 นาที ทั้งที่จริง ๆ ไม่มี error จาก API แต่อย่างใด
   //
-  // ✏️ (ปรับใหม่ตามที่ขอ) ตอนนี้กลับมาผูก "หน้าต่างกรองราคา/จุดเข้า" กับ duration ที่เลือกอีกครั้ง
-  // แต่ทำเป็น 2 ชั้นแยกกันแทนค่าคงที่ตัวเดียวแบบเดิม เพื่อไม่ให้เจอปัญหาเดิม (รอนิวไฮ/นิวโลว์ของ
-  // หน้าต่างใหญ่เกินจนแทบไม่เข้าเงื่อนไข):
-  //   - entryLookbackTicks : หน้าต่าง "ใกล้/เร็ว" เท่ากับจำนวน ticks ของ duration ที่เลือก
-  //                          (เช่นเลือก 5 นาที -> 150 ticks) ใช้คำนวณ resistance/support ที่ใช้
-  //                          ตัดสินจุดเข้า (breakout) — สอดคล้องกับเวลาที่ออเดอร์จะหมดอายุจริง
-  //   - mtfLookbackTicks  : หน้าต่าง "ใหญ่กว่า" = entryLookbackTicks × MTF_WINDOW_MULTIPLIER
-  //                          ใช้เป็นมัลติไทม์เฟรมระดับบนคุมทิศทาง (bias) ก่อนจะยอมให้ breakout
-  //                          ของหน้าต่างเล็กผ่าน — ตัวใหญ่ "คุม" ตัวเล็กตามแนวคิดที่ขอมา
-  // โลจิกเงื่อนไขออกออเดอร์ (compression/breakout/bias check) ยังเหมือนเดิมทุกอย่าง
-  // เปลี่ยนแค่ "ที่มาของตัวเลข" resistance/support/trend ให้สัมพันธ์กับ duration เท่านั้น
-  const MTF_WINDOW_MULTIPLIER = 4; // ปรับได้: ยิ่งสูง มัลติไทม์เฟรมใหญ่จะ "ช้า/มั่นคง" กว่าหน้าต่างจุดเข้ามากขึ้น
-  const MIN_ENTRY_LOOKBACK = 15;   // กันไว้ไม่ให้หน้าต่างจุดเข้าเล็กเกินไปตอนเลือก duration แบบไม่กี่ ticks
-  let entryLookbackTicks = MIN_ENTRY_LOOKBACK;
-  let mtfLookbackTicks = MIN_ENTRY_LOOKBACK * MTF_WINDOW_MULTIPLIER;
-  let lookbackPeriod = mtfLookbackTicks; // ขนาด ticks array ที่เก็บไว้ ต้องเก็บให้พอสำหรับหน้าต่างใหญ่
+  // ตอนนี้แยกออกมาเป็นค่าคงที่ SIGNAL_LOOKBACK สำหรับวิเคราะห์โครงสร้างราคาเท่านั้น
+  // ส่วน durationVal จะมีหน้าที่แค่กำหนด duration/duration_unit ที่ส่งให้ Deriv API
+  // และเวลารอผลของดีล (virtual/local tracking) ไม่เกี่ยวกับความถี่ของสัญญาณอีกต่อไป
+  const SIGNAL_LOOKBACK = 30;
+  let lookbackPeriod = SIGNAL_LOOKBACK;
   let allowedMaxSteps = 5;
   let martingaleMultiplier = 2.0; 
 
@@ -753,23 +889,22 @@
     lockEl.textContent = isGlobalOrderLocked() ? `กำลังถือดีล (${globalLockedSymbol})` : 'ว่าง';
   }
 
+  // 🆕 อัปเดต/แสดงผลแบนเนอร์ยอดเงินเดโมทดสอบ — โชว์เฉพาะตอนยังไม่ได้ authorize ผ่าน API จริง
+  // (ตอน authorize สำเร็จแล้ว ยอดเงินจริงจาก Deriv balance subscription จะเป็นตัวแสดงผลแทน)
+  function renderVirtualBalance() {
+    if (!virtualBalancePanel) return;
+    virtualBalancePanel.style.display = isAuthorized ? 'none' : 'flex';
+    if (virtualBalanceVal) {
+      virtualBalanceVal.textContent = `$${virtualDemoBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+  }
+
   function durationToWaitTicks(v) {
     if (v === '5_ticks') return 5;
     if (v === '10_ticks') return 10;
-    if (v === '1_min') return 30;   // 🆕 เติมเคสที่ขาดไป (สมมติ ~30 ticks/นาที สอดคล้องอัตราของ 5min/15min ด้านล่าง)
     if (v === '5_min') return 150; 
     if (v === '15_min') return 450;
     return 5;
-  }
-
-  // 🆕 คำนวณหน้าต่าง "จุดเข้า" (entryLookbackTicks) และ "มัลติไทม์เฟรมใหญ่คุม" (mtfLookbackTicks)
-  // จาก duration ที่เลือก ณ ขณะนั้น แล้วอัปเดต lookbackPeriod (ขนาด ticks array ที่เก็บไว้จริง)
-  // เรียกตอนเปลี่ยน duration และตอนเริ่มระบบ — ไม่กระทบเงื่อนไขออกออเดอร์ใด ๆ แค่เปลี่ยนที่มาตัวเลข
-  function recomputeLookbackWindows() {
-    const rawTicks = durationToWaitTicks(durationVal);
-    entryLookbackTicks = Math.max(MIN_ENTRY_LOOKBACK, rawTicks);
-    mtfLookbackTicks = entryLookbackTicks * MTF_WINDOW_MULTIPLIER;
-    lookbackPeriod = mtfLookbackTicks;
   }
 
   let state = {};
@@ -828,6 +963,9 @@
   const accBalance = document.getElementById('acc-balance');
   const apiDisconnectBtn = document.getElementById('api-disconnect-btn');
   const clearApiBtn = document.getElementById('clear-api-btn');
+  const baseStakeInput = document.getElementById('base-stake-input');
+  const virtualBalancePanel = document.getElementById('virtual-balance-panel');
+  const virtualBalanceVal = document.getElementById('virtual-balance-val');
 
   // 🆕 ผูกปุ่มเปิด/ปิดตัวกรองอินดิเคเตอร์เสริมแต่ละตัว
   document.querySelectorAll('.ind-toggle-chip').forEach(chip => {
@@ -876,12 +1014,27 @@
     renderGlobalBanner();
   });
 
+  // 🆕 ตั้งค่าทุนเริ่มต้นต่อไม้ (Base Stake) ได้จากหน้าจอ — ไม่กระทบโลจิกมาติงเกล/สัญญาณเดิม
+  // มีผลกับการคำนวณ currentStake ใน executeRealContract และยอดที่แสดงในแบนเนอร์/การ์ดต่าง ๆ ทันที
+  baseStakeInput.addEventListener('change', (e) => {
+    const val = parseFloat(e.target.value);
+    if (!isNaN(val) && val > 0) {
+      baseStake = val;
+      addLog(`💵 ปรับทุนเริ่มต้นต่อไม้ (Base Stake) ใหม่เป็น: $${baseStake.toFixed(2)}`);
+      renderGlobalBanner(); renderWatchGrid();
+      if (watchedSymbols.includes(focusedSymbol)) renderFocused(focusedSymbol);
+    } else {
+      e.target.value = baseStake.toFixed(2); // ค่าไม่ถูกต้อง -> คืนค่าเดิม
+    }
+  });
+
   clearApiBtn.addEventListener('click', () => {
     if(confirm('ต้องการรีเซ็ตประวัติและค่า Win Rate ในเซสชันนี้ใช่ไหมครับ?')) {
       watchedSymbols.forEach(sym => { state[sym] = freshState(); });
       globalStepCount = 0; globalLockedSymbol = null;
-      renderWatchGrid(); renderFocused(focusedSymbol); renderCombinedWinRate(); renderGlobalBanner();
-      addLog('🧹 ล้างสถิติประวัติดีลบนเทอร์มินอลเรียบร้อยแล้ว (รวมรีเซ็ตสเตปมาติงเกลกลาง)');
+      virtualDemoBalance = 10000; // 🆕 รีเซ็ตยอดเงินเดโมทดสอบกลับ $10,000 พร้อมสถิติอื่น
+      renderWatchGrid(); renderFocused(focusedSymbol); renderCombinedWinRate(); renderGlobalBanner(); renderVirtualBalance();
+      addLog('🧹 ล้างสถิติประวัติดีลบนเทอร์มินอลเรียบร้อยแล้ว (รวมรีเซ็ตสเตปมาติงเกลกลาง และยอดเงินเดโมทดสอบ)');
     }
   });
 
@@ -943,10 +1096,12 @@
       // 4. ล้างหน้าประวัติและสเตปทบเงินของบ็อต เพื่อป้องกันไม้ต่อเนื่องข้ามพอร์ต
       watchedSymbols.forEach(sym => { state[sym] = freshState(); });
       globalStepCount = 0; globalLockedSymbol = null;
+      virtualDemoBalance = 10000; // 🆕 รีเซ็ตยอดเงินเดโมทดสอบกลับ $10,000 พร้อมสลับพอร์ต
       renderWatchGrid(); 
       if (watchedSymbols.includes(focusedSymbol)) renderFocused(focusedSymbol);
       renderCombinedWinRate();
       renderGlobalBanner();
+      renderVirtualBalance();
       
       addLog('🔓 ปลดล็อกพอร์ตสำเร็จ! เทอร์มินอลเปิดระบบว่างแล้ว สามารถระบุ Token ตัวใหม่เข้าไปทำงานต่อได้ทันทีครับ');
     }
@@ -987,7 +1142,6 @@
 
     if (durationVal === '5_ticks') { durationNumber = 5; durationUnitStr = 't'; }
     else if (durationVal === '10_ticks') { durationNumber = 10; durationUnitStr = 't'; }
-    else if (durationVal === '1_min') { durationNumber = 1; durationUnitStr = 'm'; }
     else if (durationVal === '5_min') { durationNumber = 5; durationUnitStr = 'm'; }
     else if (durationVal === '15_min') { durationNumber = 15; durationUnitStr = 'm'; }
 
@@ -1007,7 +1161,8 @@
         resolveAtTick: s.tickCounter + calculatedWaitTicks,
         step: globalStepCount + 1,
         stakeValue: currentStake,
-        apiTracked: false
+        apiTracked: false,
+        isVirtual: true // 🆕 ดีลจำลอง (ยังไม่ authorize ผ่าน API จริง) ใช้ปรับยอดเงินเดโมทดสอบตอนปิดดีล
       };
       s.pendingContracts.push(localContract);
       renderGlobalBanner();
@@ -1038,7 +1193,8 @@
       resolveAtTick: s.tickCounter + calculatedWaitTicks,
       step: globalStepCount + 1,
       stakeValue: currentStake,
-      apiTracked: false
+      apiTracked: false,
+      isVirtual: false // 🆕 ดีลจริงที่ส่งให้ Deriv แล้ว ไม่แตะยอดเงินเดโมทดสอบ
     };
     s.pendingContracts.push(apiContract);
     addLog(`🎯 [${symbol}] สัญญาณผ่านตัวกรองและไม่มีออเดอร์ค้าง! ส่งคำสั่งยิงออเดอร์ ไม้กลาง M-${apiContract.step} (ขนาดทุน: $${currentStake})`);
@@ -1212,14 +1368,13 @@
   }
 
   durationSelect.addEventListener('change', (e) => {
-    // ✏️ ตอนนี้ durationVal มีผลทั้งกับ duration/duration_unit ที่ส่ง API, เวลารอผลของดีล
-    // และหน้าต่างกรองราคา (entryLookbackTicks + mtfLookbackTicks) ที่ใช้คำนวณ resistance/support/bias
+    // durationVal มีผลแค่กับ duration/duration_unit ที่ส่ง API และเวลารอผลของดีล
+    // ไม่กระทบ lookbackPeriod ของการวิเคราะห์โครงสร้างราคาอีกต่อไป (คงที่ที่ SIGNAL_LOOKBACK)
     durationVal = e.target.value;
-    recomputeLookbackWindows(); // 🆕 อัปเดตหน้าต่างกรองราคาให้สัมพันธ์กับ duration ใหม่ที่เลือก
     watchedSymbols.forEach(sym => { state[sym] = freshState(); });
     globalStepCount = 0; globalLockedSymbol = null;
     renderWatchGrid(); if (watchedSymbols.includes(focusedSymbol)) renderFocused(focusedSymbol);
-    addLog(`⏰ เปลี่ยนเวลาสัญญาร่วมเป็น: ${durationSelect.options[durationSelect.selectedIndex].text} (จุดเข้า: ${entryLookbackTicks} ticks / MTF ใหญ่คุม: ${mtfLookbackTicks} ticks — ล้างประวัติคำนวณฐานใหม่ และรีเซ็ตสเตปมาติงเกลกลาง)`);
+    addLog(`⏰ เปลี่ยนเวลาสัญญาร่วมเป็น: ${durationSelect.options[durationSelect.selectedIndex].text} (ล้างประวัติคำนวณฐานใหม่ และรีเซ็ตสเตปมาติงเกลกลาง)`);
   });
 
   function connectWS() {
@@ -1240,10 +1395,12 @@
         if(data.error) {
           isAuthorized = false; alert(`การยืนยันสิทธิ์ Token ล้มเหลว: ${data.error.message}`);
           addLog('❌ ปฏิเสธการต่อพอร์ต: กรุณาตรวจสอบรหัสสิทธิ์และโหมดพอร์ตพาสเวิร์ด');
+          renderVirtualBalance();
         } else {
           isAuthorized = true;
           apiGateInputs.style.display = 'none'; // ซ่อนฟอร์มใส่ค่า
           accountInfoDisplay.style.display = 'flex'; // โชว์สถิติพอร์ต
+          renderVirtualBalance(); // 🆕 ซ่อนแบนเนอร์ยอดเงินเดโมทดสอบ เพราะเปลี่ยนไปใช้ยอดจริงจาก Deriv แทน
           
           badgeAccountMode.textContent = accountMode === 'demo' ? 'DEMO 🧪' : 'REAL 💰';
           badgeAccountMode.className = `badge-mode ${accountMode}`;
@@ -1290,7 +1447,7 @@
 
     ws.onclose = () => {
       connDot.className = 'dot'; apiStatus.textContent = 'กำลังเชื่อมต่อ…';
-      isAuthorized = false; setTimeout(connectWS, 4000);
+      isAuthorized = false; renderVirtualBalance(); setTimeout(connectWS, 4000);
     };
   }
 
@@ -1305,24 +1462,17 @@
     const sym = tick.symbol; if (!watchedSymbols.includes(sym)) return;
     ensureState(sym); const s = state[sym]; const price = parseFloat(tick.quote);
 
-    lastAnyTickAt = Date.now(); // 🆕 อัปเดตเวลา tick ล่าสุด สำหรับ watchdog ตรวจ connection ค้าง
-
     s.tickCounter++; s.prevPrice = s.lastPrice; s.lastPrice = price; s.ticks.push(price);
     if (s.ticks.length > lookbackPeriod) s.ticks.shift();
 
     evaluatePendingContracts(sym, price, s.tickCounter);
 
-    if (s.ticks.length >= entryLookbackTicks) {
-      // ✏️ เปลี่ยนที่มาของ resistance/support: ใช้แค่หน้าต่าง "จุดเข้า" (entryLookbackTicks ticks ล่าสุด)
-      // ที่อ้างอิงตาม duration ที่เลือกไว้ (เช่นเลือก 5 นาที -> มองย้อนหลัง 150 ticks) แทนการดูทั้ง array
-      const srWindow = s.ticks.slice(-entryLookbackTicks);
-      s.resistance = Math.max(...srWindow.slice(0, -2));
-      s.support = Math.min(...srWindow.slice(0, -2));
+    if (s.ticks.length >= 15) {
+      s.resistance = Math.max(...s.ticks.slice(0, -2));
+      s.support = Math.min(...s.ticks.slice(0, -2));
 
-      // ✏️ เปลี่ยนที่มาของ mtfMainTrend: ใช้ "ทั้ง array" ที่เก็บไว้ (ยาวสุดถึง mtfLookbackTicks)
-      // เป็นมัลติไทม์เฟรมที่ "ใหญ่กว่าคุม" หน้าต่างจุดเข้าด้านบน ตามแนวคิดที่ขอมา
-      const shortPeriod = 4;
-      const mtfMainTrend = s.ticks.reduce((a,b)=>a+b,0) / s.ticks.length; 
+      const largePeriod = s.ticks.length; const shortPeriod = 4;
+      const mtfMainTrend = s.ticks.reduce((a,b)=>a+b,0) / largePeriod; 
       const currentMomentum = s.ticks.slice(-shortPeriod).reduce((a,b)=>a+b,0) / shortPeriod; 
 
       let majorBias = 'SIDEWAYS';
@@ -1336,7 +1486,7 @@
 
       if (price > midMin && price < midMax) {
         s.sigType = 'BLOCK'; s.sigText = 'COMPRESSION: MID-ZONE';
-        s.sigSub = `⏳ สภาพราคาบีบอัดตัวในกรอบสะสมพลัง รอจังหวะระเบิดเบรคเอาท์ (เทรนหลัก: ${majorBias} | จุดเข้า: ${entryLookbackTicks}t / MTF คุม: ${mtfLookbackTicks}t)`;
+        s.sigSub = `⏳ สภาพราคาบีบอัดตัวในกรอบสะสมพลัง รอจังหวะระเบิดเบรคเอาท์ (เทรนหลัก: ${majorBias})`;
       } 
       else if (price >= s.resistance && majorBias === 'BULLISH') {
         s.sigType = 'BUY'; s.sigText = 'BREAKOUT: HIGHER';
@@ -1382,12 +1532,17 @@
         s.currentStepCount = 0; 
         // 🆕 ชนะ -> รีเซ็ตสเตปกลาง "กลับจุดเริ่มต้น" ทันที ไม่ว่าจะชนะจากสัญลักษณ์ไหนก็ตาม
         globalStepCount = 0;
+        // 🆕 ดีลจำลอง (โหมดทดสอบ ยังไม่ authorize จริง) ชนะ -> บวกกำไรเข้ายอดเงินเดโมทดสอบ
+        // (ใช้ payout ประมาณการ VIRTUAL_PAYOUT_RATIO เพราะ client ไม่รู้ payout จริงก่อนซื้อ)
+        if (c.isVirtual) { virtualDemoBalance += c.stakeValue * VIRTUAL_PAYOUT_RATIO; renderVirtualBalance(); }
       } else {
         s.statLosses++;
         s.currentStepCount++; 
         // 🆕 แพ้ -> เดินสเตปกลางต่อ (ไม่ผูกกับสัญลักษณ์เดิม) เพื่อให้ไม้ถัดไปไปยิงที่
         // สัญลักษณ์ Win Rate สูงสุด ณ ขณะนั้น ซึ่งอาจเป็นคนละสัญลักษณ์กับไม้นี้
         globalStepCount++;
+        // 🆕 ดีลจำลองแพ้ -> หักทุนไม้นั้นออกจากยอดเงินเดโมทดสอบ
+        if (c.isVirtual) { virtualDemoBalance -= c.stakeValue; renderVirtualBalance(); }
         
         if (globalStepCount >= allowedMaxSteps) {
           addLog(`🛑 [STOP LOSS] ระบบกลางผิดทางถึงลิมิตสูงสุดที่ล็อกไว้ (${allowedMaxSteps} ไม้) บ็อตตัดขาดทุนรอบนี้ทิ้ง (Cut Loss) และบังคับรีเซ็ตสเตปกลางกลับไม้ 1 ทันที!`);
@@ -1410,57 +1565,11 @@
     renderGlobalBanner();
   }
 
-  // ──────────────────────────────────────────────────────────────────
-  // 🆕 KEEP-ALIVE FOR VPS/RDP SESSIONS
-  // ปัญหา "จอดำแต่ browser ยังเปิดอยู่" บน Windows VPS ผ่าน RDP ส่วนใหญ่เกิดจาก
-  // OS/Display ไม่ใช่ตัวหน้าเว็บ แต่ส่วนนี้ช่วยกัน 2 อย่างที่ฝั่งเว็บคุมได้:
-  //   1) Screen Wake Lock API — ขอไม่ให้ browser ปล่อยให้จอ/แท็บถูกพักการทำงาน
-  //   2) Tick Watchdog — ถ้าไม่มี tick เข้ามานานเกินไป (WS หลุดแบบเงียบ ๆ)
-  //      จะ force reconnect ทันทีโดยไม่ต้องรอ ws.onclose event
-  // ไม่กระทบโลจิกสัญญาณ/มาติงเกล/ฟิลเตอร์เดิมเลย เป็นแค่ชั้นเสริมความเสถียรของการเชื่อมต่อ
-  // ──────────────────────────────────────────────────────────────────
-  let wakeLockSentinel = null;
-
-  async function requestWakeLock() {
-    try {
-      if ('wakeLock' in navigator) {
-        wakeLockSentinel = await navigator.wakeLock.request('screen');
-        addLog('🟢 ขอ Wake Lock สำเร็จ — เบราว์เซอร์จะไม่พักหน้าจอ/แท็บนี้ตราบที่หน้าเว็บเปิดอยู่');
-        wakeLockSentinel.addEventListener('release', () => {
-          addLog('⚠️ Wake Lock ถูกปล่อย (อาจเพราะแท็บถูกซ่อนหรือ minimize) — จะขอใหม่อัตโนมัติเมื่อกลับมา active');
-        });
-      } else {
-        addLog('ℹ️ เบราว์เซอร์นี้ไม่รองรับ Wake Lock API (ยังไม่กระทบการทำงานของบอท แต่แนะนำตั้งค่าฝั่ง Windows เพิ่มตามคำแนะนำ)');
-      }
-    } catch (err) {
-      addLog(`⚠️ ขอ Wake Lock ไม่สำเร็จ: ${err.message}`);
-    }
-  }
-
-  document.addEventListener('visibilitychange', () => {
-    // กลับมาเห็นแท็บอีกครั้ง (เช่น สลับ RDP กลับมา) -> ขอ wake lock ใหม่เผื่อหลุดไปก่อนหน้า
-    if (document.visibilityState === 'visible') requestWakeLock();
-  });
-
-  requestWakeLock();
-
-  // 🆕 Tick Watchdog: เก็บเวลา tick ล่าสุดที่ "สัญลักษณ์ใดก็ตาม" เข้ามา
-  // ถ้าค้างเกิน TICK_STALL_LIMIT_MS (ปรับได้) จะถือว่า WS หลุดแบบเงียบ แล้ว force reconnect
-  let lastAnyTickAt = Date.now();
-  const TICK_STALL_LIMIT_MS = 25000; // 25 วินาทีไม่มี tick เข้ามาเลย = ผิดปกติ (ตลาดนี้ ticks มาถี่กว่านี้มาก)
-
-  setInterval(() => {
-    const idleMs = Date.now() - lastAnyTickAt;
-    if (idleMs > TICK_STALL_LIMIT_MS) {
-      addLog(`🔁 [WATCHDOG] ไม่มี tick เข้ามานาน ${(idleMs/1000).toFixed(0)} วินาที — สงสัยการเชื่อมต่อค้าง กำลัง force reconnect WebSocket...`);
-      lastAnyTickAt = Date.now(); // กันยิง reconnect ซ้ำถี่เกินไประหว่างรอ connectWS ใหม่
-      connectWS();
-    }
-  }, 5000);
-
-  recomputeLookbackWindows(); // 🆕 ตั้งค่าหน้าต่างกรองราคาเริ่มต้นให้ตรงกับ duration เริ่มต้น (5_ticks)
   ensureState(focusedSymbol); renderPicker(); renderWatchGrid(); renderFocused(focusedSymbol); renderGlobalBanner(); connectWS();
 </script>
 
 </body>
 </html>
+
+
+
