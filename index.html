@@ -79,6 +79,7 @@
   .badge-mode.demo { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid #3b82f6; }
   .badge-mode.real { background: rgba(16, 185, 129, 0.15); color: var(--buy); border: 1px solid var(--buy); }
   .balance-val { color: var(--buy); font-weight: 700; }
+  .badge-currency { background: rgba(94,234,212,0.12); color: var(--accent); border: 1px solid var(--accent); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; }
   .section-label{ font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-dim); margin:0 0 10px; display:flex; align-items:center; justify-content:space-between; }
   .watchlist-picker{ display:flex; flex-wrap:wrap; gap:7px; margin-bottom:20px; }
   .chip{ font-family:var(--mono); font-size:12px; padding:8px 12px; border-radius:7px; border:1px solid var(--line); background:var(--panel); color:var(--ink-dim); cursor:pointer; user-select:none; }
@@ -202,7 +203,24 @@
   <span class="orb-1"></span><span class="orb-2"></span><span class="orb-3"></span><span class="orb-4"></span>
 </div>
 
-<div class="wrap">
+<div id="login-overlay" style="position:fixed; inset:0; z-index:999; background:var(--bg); display:flex; align-items:center; justify-content:center; padding:20px;">
+  <div style="width:100%; max-width:380px; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:28px 24px;">
+    <div style="text-align:center; margin-bottom:22px;">
+      <span style="font-family:var(--mono); font-size:11px; letter-spacing:.18em; color:var(--accent); text-transform:uppercase;">TVE Tech System</span>
+      <h2 style="margin:6px 0 0; font-size:18px; color:var(--ink-bright);">เข้าสู่ระบบ</h2>
+      <p style="margin:6px 0 0; font-size:12px; color:var(--ink-dim);">กรุณาล็อกอินก่อนเข้าใช้เทอร์มินอล</p>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <input type="email" id="login-email" class="api-input" placeholder="อีเมล (Username)" autocomplete="username" style="width:100%; padding:11px 12px;">
+      <input type="password" id="login-password" class="api-input" placeholder="รหัสผ่าน (Password)" autocomplete="current-password" style="width:100%; padding:11px 12px;">
+      <button id="login-submit-btn" class="api-btn" style="width:100%; padding:11px; margin-top:4px;">เข้าสู่ระบบ</button>
+      <div id="login-error" style="display:none; color:var(--sell); font-size:12px; text-align:center; margin-top:2px;"></div>
+      <div id="login-loading" style="display:none; color:var(--ink-dim); font-size:12px; text-align:center; margin-top:2px;">กำลังตรวจสอบสิทธิ์...</div>
+    </div>
+  </div>
+</div>
+
+<div class="wrap" id="app-wrap" style="display:none;">
   <header>
     <div class="brand">
       <span class="mark">TVE Tech System</span>
@@ -210,6 +228,7 @@
     </div>
     <div class="header-controls">
       <button class="theme-toggle-btn" id="theme-toggle" title="สลับโหมด มืด/สว่าง">🌙</button>
+      <button class="theme-toggle-btn" id="logout-btn" title="ออกจากระบบ">🚪</button>
       <div class="conn">
         <span class="dot" id="conn-dot"></span>
         <span id="api-status">กำลังเชื่อมต่อ…</span>
@@ -229,6 +248,7 @@
     <div class="account-info" id="account-info-display" style="display: none;">
       <div class="account-meta-group">
         <span class="badge-mode demo" id="badge-account-mode">DEMO</span>
+        <span class="badge-currency" id="badge-currency">USD</span>
         <span>ID: <b id="acc-email" style="color:var(--ink-bright)">—</b></span>
         <span>Balance: <b class="balance-val" id="acc-balance">$0.00</b></span>
       </div>
@@ -296,7 +316,7 @@
           </select>
         </div>
         <div class="field" style="grid-column: span 2; margin-top: 4px;">
-          <label for="base-stake-input">💵 ทุนเริ่มต้นต่อไม้ (Base Stake $)</label>
+          <label for="base-stake-input">💵 ทุนเริ่มต้นต่อไม้ (Base Stake)</label>
           <input type="number" id="base-stake-input" class="api-input" style="width:100%; padding:11px 12px;" min="0.35" step="0.01" value="1.00">
         </div>
         <div class="field" style="grid-column: span 2; margin-top: 4px;">
@@ -389,7 +409,89 @@
   </div>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script>
+  // ====== FIREBASE AUTH GATE ======
+  const firebaseConfig = {
+    apiKey: "AIzaSyBdcAy8tLMZ3jeGcPGOdbR7qF9DDh0Uidc",
+    authDomain: "deriv-signal3.firebaseapp.com",
+    projectId: "deriv-signal3",
+    storageBucket: "deriv-signal3.firebasestorage.app",
+    messagingSenderId: "1047757017057",
+    appId: "1:1047757017057:web:02cb845e7f8fc345988ca0",
+    measurementId: "G-ZV32T1XVJC"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+
+  const loginOverlay = document.getElementById('login-overlay');
+  const appWrap = document.getElementById('app-wrap');
+  const loginEmailInput = document.getElementById('login-email');
+  const loginPasswordInput = document.getElementById('login-password');
+  const loginSubmitBtn = document.getElementById('login-submit-btn');
+  const loginErrorEl = document.getElementById('login-error');
+  const loginLoadingEl = document.getElementById('login-loading');
+  const logoutBtn = document.getElementById('logout-btn');
+
+  function showLoginError(msg) {
+    loginErrorEl.textContent = msg;
+    loginErrorEl.style.display = 'block';
+  }
+  function clearLoginError() {
+    loginErrorEl.style.display = 'none';
+    loginErrorEl.textContent = '';
+  }
+
+  function doLogin() {
+    const email = loginEmailInput.value.trim();
+    const password = loginPasswordInput.value;
+    if (!email || !password) { showLoginError('กรุณากรอกอีเมลและรหัสผ่านให้ครบครับ'); return; }
+    clearLoginError();
+    loginLoadingEl.style.display = 'block';
+    loginSubmitBtn.disabled = true;
+    auth.signInWithEmailAndPassword(email, password)
+      .catch((err) => {
+        let msg = 'เข้าสู่ระบบไม่สำเร็จ กรุณาตรวจสอบอีเมล/รหัสผ่าน';
+        if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+          msg = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง';
+        } else if (err.code === 'auth/invalid-email') {
+          msg = 'รูปแบบอีเมลไม่ถูกต้อง';
+        } else if (err.code === 'auth/too-many-requests') {
+          msg = 'พยายามเข้าสู่ระบบผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่';
+        }
+        showLoginError(msg);
+      })
+      .finally(() => {
+        loginLoadingEl.style.display = 'none';
+        loginSubmitBtn.disabled = false;
+      });
+  }
+
+  loginSubmitBtn.addEventListener('click', doLogin);
+  loginPasswordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+  loginEmailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+
+  logoutBtn.addEventListener('click', () => {
+    if (confirm('ต้องการออกจากระบบใช่ไหมครับ?')) { auth.signOut(); }
+  });
+
+  let appBooted = false;
+  auth.onAuthStateChanged((user) => {
+    if (user) {
+      loginOverlay.style.display = 'none';
+      appWrap.style.display = 'block';
+      loginEmailInput.value = ''; loginPasswordInput.value = ''; clearLoginError();
+      if (!appBooted) { appBooted = true; bootApp(); }
+    } else {
+      loginOverlay.style.display = 'flex';
+      appWrap.style.display = 'none';
+    }
+  });
+</script>
+
+<script>
+  // ====== MAIN APP (boots only after Firebase login succeeds) ======
   const ALL_SYMBOLS = [
     { sym: 'R_10',     label: 'Volatility 10 Index',    dec: 3 },
     { sym: 'R_25',     label: 'Volatility 25 Index',    dec: 3 },
@@ -411,6 +513,14 @@
   let apiToken = '';
   let isAuthorized = false;
   let accountMode = 'demo';
+
+  // ====== BUG FIX (currency mismatch): เดิม hardcode currency เป็น 'USD' ตายตัวในคำสั่ง buy
+  // ทำให้บัญชีจริงที่ใช้สกุลเงินอื่น (เช่น USDC / BTC / ETH / GBP / EUR ฯลฯ) ถูก Deriv API ปฏิเสธคำสั่งซื้อ
+  // (currency ใน parameters ต้องตรงกับ currency ของบัญชีที่ authorize ไว้เท่านั้น)
+  // ตอนนี้ดึง currency จริงจาก authorize response มาเก็บไว้ใช้แทน
+  let accountCurrency = 'USD';
+  let currencyIsCrypto = false; // ใช้ปรับจำนวนทศนิยมตอนแสดง/คำนวณ stake ของสกุลเงินคริปโต
+
   let baseStake = 1.0;
 
   let virtualDemoBalance = 10000;
@@ -444,13 +554,19 @@
     return globalLockedSymbol !== null;
   }
 
+  function formatStakeForCurrency(amount) {
+    // คริปโตส่วนใหญ่ใน Deriv ใช้ทศนิยมมากกว่า fiat (เช่น BTC ใช้ 8 ตำแหน่ง แต่ขั้นต่ำจริงมักพอแสดง 2-4 ก็พอ)
+    const decimals = currencyIsCrypto ? 4 : 2;
+    return amount.toFixed(decimals);
+  }
+
   function renderGlobalBanner() {
     const stepEl = document.getElementById('cb-step');
     const stakeEl = document.getElementById('cb-next-stake');
     const lockEl = document.getElementById('cb-lock-status');
     if (!stepEl) return;
     stepEl.textContent = `M-${globalStepCount + 1}`;
-    stakeEl.textContent = `$${(baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(2)}`;
+    stakeEl.textContent = `${formatStakeForCurrency(baseStake * Math.pow(martingaleMultiplier, globalStepCount))} ${accountCurrency}`;
     lockEl.textContent = isGlobalOrderLocked() ? `กำลังถือดีล (${globalLockedSymbol})` : 'ว่าง';
   }
 
@@ -502,6 +618,7 @@
   const apiConnectBtn = document.getElementById('api-connect-btn');
   const accountInfoDisplay = document.getElementById('account-info-display');
   const badgeAccountMode = document.getElementById('badge-account-mode');
+  const badgeCurrency = document.getElementById('badge-currency');
   const accEmail = document.getElementById('acc-email');
   const accBalance = document.getElementById('acc-balance');
   const apiDisconnectBtn = document.getElementById('api-disconnect-btn');
@@ -556,7 +673,7 @@
     const val = parseFloat(e.target.value);
     if (!isNaN(val) && val > 0) {
       baseStake = val;
-      addLog(`💵 ปรับทุนเริ่มต้นต่อไม้ (Base Stake) ใหม่เป็น: $${baseStake.toFixed(2)}`);
+      addLog(`💵 ปรับทุนเริ่มต้นต่อไม้ (Base Stake) ใหม่เป็น: ${formatStakeForCurrency(baseStake)} ${accountCurrency}`);
       renderGlobalBanner(); renderWatchGrid();
       if (watchedSymbols.includes(focusedSymbol)) renderFocused(focusedSymbol);
     } else {
@@ -605,6 +722,8 @@
       addLog(`🔒 กำลังสั่งตัดการเชื่อมต่อพอร์ตเดิม และคืนโครงสร้างความปลอดภัย...`);
       if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ forget_all: "ticks" })); }
       apiToken = ''; isAuthorized = false;
+      accountCurrency = 'USD'; currencyIsCrypto = false;
+      if (badgeCurrency) badgeCurrency.textContent = 'USD';
       accountInfoDisplay.style.display = 'none';
       apiGateInputs.style.display = 'flex';
       apiTokenInput.value = '';
@@ -628,6 +747,9 @@
     if (ws && ws.readyState === WebSocket.OPEN && isAuthorized) { ws.send(JSON.stringify({ balance: 1, subscribe: 1 })); }
   }
 
+  // รายชื่อสกุลเงินคริปโตที่ Deriv รองรับ ใช้เพื่อปรับการแสดงทศนิยมเท่านั้น (ไม่กระทบ currency ที่ส่งไป API)
+  const CRYPTO_CURRENCIES = ['BTC', 'ETH', 'LTC', 'USDC', 'USDT', 'eUSDT', 'tUSDT', 'UST'];
+
   function executeRealContract(symbol, direction) {
     // BUG 4 FIX: เช็คก่อนสุดว่ามีคำสั่งกำลังประมวลผลอยู่หรือไม่ (กัน tick 2 ตัวมาเร็วเกินไป)
     if (orderInFlight) {
@@ -644,7 +766,7 @@
 
     orderInFlight = true;
 
-    const currentStake = parseFloat((baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(2));
+    const currentStake = parseFloat((baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(currencyIsCrypto ? 4 : 2));
     const contractType = direction === 'HIGHER' ? 'CALL' : 'PUT';
 
     let durationNumber = 5; let durationUnitStr = 't';
@@ -670,9 +792,12 @@
       return;
     }
 
+    // BUG FIX: ใช้ accountCurrency จริงของบัญชี (ดึงมาตอน authorize) แทนการ hardcode 'USD'
+    // ถ้าส่ง currency ผิดจากสกุลเงินจริงของบัญชี Deriv จะตอบ error กลับมาที่ data.buy.error
+    // และคำสั่งจะไม่ถูกส่งออกไปยังตลาดเลย (เงียบ ไม่มีอะไรเกิดขึ้นถ้าไม่เช็ก log)
     const orderRequest = {
       buy: 1, price: currentStake,
-      parameters: { amount: currentStake, basis: 'stake', contract_type: contractType, currency: 'USD', duration: durationNumber, duration_unit: durationUnitStr, symbol: symbol }
+      parameters: { amount: currentStake, basis: 'stake', contract_type: contractType, currency: accountCurrency, duration: durationNumber, duration_unit: durationUnitStr, symbol: symbol }
     };
 
     ws.send(JSON.stringify(orderRequest));
@@ -684,7 +809,7 @@
       stakeValue: currentStake, apiTracked: false, isVirtual: false
     };
     s.pendingContracts.push(apiContract);
-    addLog(`🎯 [${symbol}] สัญญาณผ่านตัวกรองและไม่มีออเดอร์ค้าง! ส่งคำสั่งยิงออเดอร์ ไม้กลาง M-${apiContract.step} (ขนาดทุน: $${currentStake})`);
+    addLog(`🎯 [${symbol}] สัญญาณผ่านตัวกรองและไม่มีออเดอร์ค้าง! ส่งคำสั่งยิงออเดอร์ ไม้กลาง M-${apiContract.step} (ขนาดทุน: ${formatStakeForCurrency(currentStake)} ${accountCurrency})`);
     renderGlobalBanner();
   }
 
@@ -738,13 +863,13 @@
         }).join(' ');
         polylineHtml = `<polyline fill="none" stroke="${strokeColor}" stroke-width="1.2" points="${pts}"></polyline>`;
       }
-      const nextStakeVal = (baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(2);
+      const nextStakeVal = formatStakeForCurrency(baseStake * Math.pow(martingaleMultiplier, globalStepCount));
       return `<div class="watch-card ${focusedCls}" data-sym="${sym}">
         <div class="wc-top"><span class="wc-name">${meta.label}</span><span class="wc-badge ${badgeCls}">${s.sigType}</span></div>
         <div class="wc-mid"><span class="wc-price">${priceStr}</span><div class="wc-spark-wrap"><svg viewBox="0 0 120 28" preserveAspectRatio="none">${polylineHtml}</svg></div></div>
         <div class="wc-bottom">
           <div class="wc-wr">Win Rate: <span class="wc-wr-val ${wrCls}">${wrStr}</span></div>
-          <div>ดีลค้าง: ${s.pendingContracts.length} (กลาง M-${globalStepCount + 1} = $${nextStakeVal})</div>
+          <div>ดีลค้าง: ${s.pendingContracts.length} (กลาง M-${globalStepCount + 1} = ${nextStakeVal} ${accountCurrency})</div>
         </div>
       </div>`;
     }).join('');
@@ -795,9 +920,9 @@
 
     const total = s.statWins + s.statLosses;
     const wrRateStr = total > 0 ? ((s.statWins / total) * 100).toFixed(0) + '%' : '—';
-    const currentEstimatedStake = (baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(2);
+    const currentEstimatedStake = formatStakeForCurrency(baseStake * Math.pow(martingaleMultiplier, globalStepCount));
 
-    document.getElementById('track-count').textContent = `${total + s.pendingContracts.length} ดีล (สเตปกลางปัจจุบัน: M-${globalStepCount + 1}/${allowedMaxSteps} | ทุนไม้ถัดไป: $${currentEstimatedStake})`;
+    document.getElementById('track-count').textContent = `${total + s.pendingContracts.length} ดีล (สเตปกลางปัจจุบัน: M-${globalStepCount + 1}/${allowedMaxSteps} | ทุนไม้ถัดไป: ${currentEstimatedStake} ${accountCurrency})`;
     document.getElementById('ts-winrate').textContent = wrRateStr;
     document.getElementById('ts-wins').textContent = s.statWins;
     document.getElementById('ts-losses').textContent = s.statLosses;
@@ -816,7 +941,7 @@
           <span class="tl-result ${resCls}">${resSym}</span>
           <span class="tl-dir ${dirCls}">${dirLabel}</span>
           <span class="tl-prices">${r.entryPrice.toFixed(meta.dec)} → ${r.exitPrice.toFixed(meta.dec)}</span>
-          <span class="tl-time">${time} (ไม้ M-${r.step} | ขนาด $${r.stakeValue.toFixed(2)})</span>
+          <span class="tl-time">${time} (ไม้ M-${r.step} | ขนาด ${formatStakeForCurrency(r.stakeValue)} ${accountCurrency})</span>
         </li>`;
       }).join('');
     }
@@ -867,7 +992,7 @@
       if (data.msg_type === 'authorize') {
         if(data.error) {
           isAuthorized = false; alert(`การยืนยันสิทธิ์ Token ล้มเหลว: ${data.error.message}`);
-          addLog('❌ ปฏิเสธการต่อพอร์ต: กรุณาตรวจสอบรหัสสิทธิ์และโหมดพอร์ตพาสเวิร์ด');
+          addLog(`❌ ปฏิเสธการต่อพอร์ต: ${data.error.code || ''} ${data.error.message} — กรุณาตรวจสอบรหัสสิทธิ์และโหมดพอร์ต`);
           renderVirtualBalance();
         } else {
           isAuthorized = true;
@@ -876,21 +1001,38 @@
           renderVirtualBalance();
           badgeAccountMode.textContent = accountMode === 'demo' ? 'DEMO 🧪' : 'REAL 💰';
           badgeAccountMode.className = `badge-mode ${accountMode}`;
+
+          // BUG FIX: ดึงสกุลเงินจริงของบัญชีจาก authorize response
+          // เดิมระบบ hardcode currency เป็น USD ในคำสั่ง buy เสมอ ทำให้บัญชีจริงที่ไม่ใช่ USD
+          // (เช่น USDC/BTC/ETH/GBP/EUR) ถูก Deriv ปฏิเสธคำสั่งซื้อแบบเงียบๆ (error จะโผล่แค่ใน log)
+          accountCurrency = data.authorize.currency || 'USD';
+          currencyIsCrypto = CRYPTO_CURRENCIES.includes(accountCurrency);
+          if (badgeCurrency) badgeCurrency.textContent = accountCurrency;
+
           accEmail.textContent = data.authorize.email;
-          addLog(`✅ บัญชี ${data.authorize.email} เปิดระบบสำเร็จ! [โหมดพอร์ต: ${accountMode.toUpperCase()}]`);
+          addLog(`✅ บัญชี ${data.authorize.email} เปิดระบบสำเร็จ! [โหมดพอร์ต: ${accountMode.toUpperCase()} | สกุลเงิน: ${accountCurrency}]`);
+          if (currencyIsCrypto) {
+            addLog(`💠 ตรวจพบสกุลเงินคริปโต (${accountCurrency}) ระบบปรับคำสั่งซื้อให้ใช้สกุลเงินนี้แทน USD โดยอัตโนมัติแล้ว`);
+          }
+          renderGlobalBanner(); renderWatchGrid();
+          if (watchedSymbols.includes(focusedSymbol)) renderFocused(focusedSymbol);
           fetchBalance();
         }
       }
 
       if (data.msg_type === 'balance') {
         if(!data.error && data.balance && isAuthorized) {
-          accBalance.textContent = `$${parseFloat(data.balance.balance).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+          const sym = data.balance.currency || accountCurrency;
+          accBalance.textContent = currencyIsCrypto
+            ? `${parseFloat(data.balance.balance).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 8})} ${sym}`
+            : `${parseFloat(data.balance.balance).toLocaleString('en-US', {minimumFractionDigits: 2})} ${sym}`;
         }
       }
 
       if (data.msg_type === 'buy') {
         if(data.error) {
-          addLog(`🚨 [API ERROR] เซิร์ฟเวอร์ปฏิเสธดีล: ${data.error.message}`);
+          // BUG FIX: log error code/message แบบเต็ม เพื่อ debug ได้ตรงจุด (เช่น currency mismatch, permission, market closed)
+          addLog(`🚨 [API ERROR] เซิร์ฟเวอร์ปฏิเสธดีล: [${data.error.code || 'UNKNOWN'}] ${data.error.message}`);
           const sym = focusedSymbol;
           if(state[sym]) state[sym].pendingContracts = [];
           globalLockedSymbol = null;
@@ -898,7 +1040,7 @@
           renderGlobalBanner();
         } else {
           const buyInfo = data.buy;
-          addLog(`📦 [API ORDER ACCEPTED] ออกคำสั่งซื้อสำเร็จ! เลขที่ดีล: ${buyInfo.contract_id} (จำนวนทุน: $${buyInfo.price.toFixed(2)})`);
+          addLog(`📦 [API ORDER ACCEPTED] ออกคำสั่งซื้อสำเร็จ! เลขที่ดีล: ${buyInfo.contract_id} (จำนวนทุน: ${formatStakeForCurrency(buyInfo.price)} ${accountCurrency})`);
           watchedSymbols.forEach(sym => {
             ensureState(sym);
             state[sym].pendingContracts.forEach(c => {
@@ -995,8 +1137,8 @@
           addLog(`🛑 [STOP LOSS] ระบบกลางผิดทางถึงลิมิตสูงสุดที่ล็อกไว้ (${allowedMaxSteps} ไม้) บ็อตตัดขาดทุนรอบนี้ทิ้ง (Cut Loss) และบังคับรีเซ็ตสเตปกลางกลับไม้ 1 ทันที!`);
           globalStepCount = 0; s.currentStepCount = 0;
         } else {
-          const nextLayerStake = (baseStake * Math.pow(martingaleMultiplier, globalStepCount)).toFixed(2);
-          addLog(`❌ [LOSS] ดีล ${c.id} (${sym}) แพ้ที่ไม้กลาง ${c.step}! ระบบทบเงินมาติงเกลด้วยตัวคูณ x${martingaleMultiplier} (เตรียมไม้กลาง M-${globalStepCount + 1} ขนาดทุน: $${nextLayerStake})`);
+          const nextLayerStake = formatStakeForCurrency(baseStake * Math.pow(martingaleMultiplier, globalStepCount));
+          addLog(`❌ [LOSS] ดีล ${c.id} (${sym}) แพ้ที่ไม้กลาง ${c.step}! ระบบทบเงินมาติงเกลด้วยตัวคูณ x${martingaleMultiplier} (เตรียมไม้กลาง M-${globalStepCount + 1} ขนาดทุน: ${nextLayerStake} ${accountCurrency})`);
         }
       }
 
@@ -1010,7 +1152,10 @@
     renderGlobalBanner();
   }
 
-  ensureState(focusedSymbol); renderPicker(); renderWatchGrid(); renderFocused(focusedSymbol); renderGlobalBanner(); connectWS();
+  function bootApp() {
+    ensureState(focusedSymbol); renderPicker(); renderWatchGrid(); renderFocused(focusedSymbol); renderGlobalBanner(); connectWS();
+  }
+
 </script>
 
 </body>
